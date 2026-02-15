@@ -4,6 +4,9 @@
   let currentBufferedColor = null;
   let timerInterval = null, timerEnd = null;
 
+  // --- Silent audio for iOS/iPadOS background playback ---
+  const silentAudio = document.getElementById("silentAudio");
+
   // --- DOM refs ---
   const playBtn      = document.getElementById("playBtn");
   const playIcon     = document.getElementById("playIcon");
@@ -309,9 +312,11 @@
           startSource(getActiveColor());
         }
         if (ctx.state === "suspended") await ctx.resume();
+        silentAudio.play().catch(() => {});
         playing = true;
       } else {
         if (ctx) await ctx.suspend();
+        silentAudio.pause();
         playing = false;
         clearTimer();
         timerDisp.textContent = "";

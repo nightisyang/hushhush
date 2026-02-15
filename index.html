@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-  <title>HushHush
+  <title>HushHush</title>
   <link rel="manifest" href="manifest.json">
 
   <!-- Status bar: blend with app background on both platforms -->
@@ -363,6 +363,11 @@
       </div>
     </div>
   </div>
+
+  <!-- Silent audio loop to keep iOS/iPadOS audio session alive when screen is off -->
+  <audio id="silentAudio" loop playsinline>
+    <source src="silence.mp3" type="audio/mpeg">
+  </audio>
 
   <script src="app.js"></script>
 </body>
