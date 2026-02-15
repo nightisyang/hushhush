@@ -324,6 +324,7 @@
         document.querySelector('.timer-btn[data-min="0"]').classList.add("active");
       }
       updatePlayBtn();
+      updateMediaSession();
     } finally {
       toggling = false;
     }
@@ -333,6 +334,27 @@
     playIcon.style.display = playing ? "none" : "block";
     stopIcon.style.display = playing ? "block" : "none";
     playBtn.classList.toggle("active", playing);
+  }
+
+  // --- Media Session (lock screen controls on iOS & Android) ---
+  function updateMediaSession() {
+    if (!("mediaSession" in navigator)) return;
+    if (playing) {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: getActiveColor().charAt(0).toUpperCase() + getActiveColor().slice(1) + " Noise",
+        artist: "HushHush",
+        album: "Ambient Noise",
+      });
+      navigator.mediaSession.playbackState = "playing";
+    } else {
+      navigator.mediaSession.playbackState = "paused";
+    }
+  }
+
+  if ("mediaSession" in navigator) {
+    navigator.mediaSession.setActionHandler("play", toggle);
+    navigator.mediaSession.setActionHandler("pause", toggle);
+    navigator.mediaSession.setActionHandler("stop", () => { if (playing) toggle(); });
   }
 
   playBtn.addEventListener("click", toggle);
@@ -347,6 +369,7 @@
       startSource(btn.dataset.color);
     }
     clearActivePreset();
+    updateMediaSession();
   });
 
   // --- Volume ---
