@@ -1,4 +1,4 @@
-const CACHE = "noise-v11";
+const CACHE = "noise-v12";
 const ASSETS = ["./", "index.html", "app.js", "manifest.json", "icon-192.svg", "icon-512.svg"];
 
 self.addEventListener("install", (e) => {
@@ -17,9 +17,8 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   const url = new URL(e.request.url);
-  // Never cache the generated noise file or the generate endpoint
+  // Let audio and generate requests bypass the SW entirely
   if (url.pathname === "/current-noise.wav" || url.pathname === "/generate") {
-    e.respondWith(fetch(e.request));
     return;
   }
   e.respondWith(
