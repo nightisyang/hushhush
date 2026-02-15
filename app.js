@@ -177,23 +177,47 @@
     for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   }
 
-  // --- Load blob into <audio> ---
+  // --- Store WAV in Service Worker cache and load via real URL ---
+  function storeInSWCache(blob) {
+    return new Promise((resolve) => {
+      const sw = navigator.serviceWorker.controller;
+      if (!sw) { resolve(false); return; }
+
+      const handler = (e) => {
+        if (e.data && e.data.type === "audio-stored") {
+          navigator.serviceWorker.removeEventListener("message", handler);
+          resolve(true);
+        }
+      };
+      navigator.serviceWorker.addEventListener("message", handler);
+      sw.postMessage({ type: "store-audio", blob });
+
+      // Timeout fallback
+      setTimeout(() => { resolve(false); }, 2000);
+    });
+  }
+
   async function loadAudio() {
     const s = getState();
     const blob = await renderBlob(s.color, s.lowCut, s.highCut, s.modulation, s.modSpeed);
-    const url = URL.createObjectURL(blob);
-
     const wasPlaying = playing && !audioEl.paused;
-    audioEl.src = url;
-    audioEl.volume = s.volume / 100;
 
+    const stored = await storeInSWCache(blob);
+    if (stored) {
+      // Use real URL served by service worker — iOS keeps this alive
+      audioEl.src = "/generated-noise.wav?" + Date.now();
+    } else {
+      // Fallback to blob URL if SW not ready
+      const url = URL.createObjectURL(blob);
+      audioEl.src = url;
+      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+      currentBlobUrl = url;
+    }
+
+    audioEl.volume = s.volume / 100;
     if (wasPlaying) {
       await audioEl.play().catch(() => {});
     }
-
-    // Clean up old blob
-    if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-    currentBlobUrl = url;
   }
 
   // Debounced version for slider changes (avoids excessive re-renders)
@@ -468,6 +492,11 @@
   function clearTimer() {
     if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
     timerEnd = null;
+  }
+
+  // --- Audio Session API (tells iOS this is a playback app) ---
+  if (navigator.audioSession) {
+    navigator.audioSession.type = "playback";
   }
 
   // --- Service Worker ---
