@@ -364,8 +364,10 @@
     </div>
   </div>
 
-  <!-- Audio element for iOS/iPadOS background playback — srcObject set by app.js -->
-  <audio id="silentAudio" loop playsinline></audio>
+  <!-- Near-silent audio loop to keep iOS/iPadOS audio session alive when screen is off -->
+  <audio id="silentAudio" loop playsinline>
+    <source src="silence.mp3" type="audio/mpeg">
+  </audio>
 
   <script src="app.js"></script>
 </body>

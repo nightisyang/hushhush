@@ -1,4 +1,4 @@
-const CACHE = "noise-v7";
+const CACHE = "noise-v8";
 const ASSETS = ["./", "index.html", "app.js", "silence.mp3", "manifest.json", "icon-192.svg", "icon-512.svg"];
 
 self.addEventListener("install", (e) => {

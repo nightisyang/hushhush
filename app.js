@@ -283,11 +283,6 @@
       // Chain: source → highpass → lowpass → volumeGain → destination
       hp.connect(lp).connect(vg).connect(newCtx.destination);
 
-      // Route audio through <audio> element so iOS keeps the session alive when screen is off
-      const streamDest = newCtx.createMediaStreamDestination();
-      vg.connect(streamDest);
-      silentAudio.srcObject = streamDest.stream;
-
       // Commit to module state only after everything succeeds
       ctx = newCtx;
       highpassNode = hp;
