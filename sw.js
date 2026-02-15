@@ -25,12 +25,17 @@ self.addEventListener("fetch", (e) => {
 // Listen for messages from the app to store generated audio
 self.addEventListener("message", (e) => {
   if (e.data && e.data.type === "store-audio") {
-    const response = new Response(e.data.blob, {
-      headers: { "Content-Type": "audio/wav" }
+    const blob = e.data.blob;
+    const response = new Response(blob, {
+      headers: {
+        "Content-Type": "audio/wav",
+        "Content-Length": blob.size.toString(),
+        "Accept-Ranges": "bytes",
+        "Cache-Control": "no-cache"
+      }
     });
     caches.open(NOISE_CACHE).then(cache => {
       cache.put(new Request("/generated-noise.wav"), response);
-      // Notify the client that audio is ready
       e.source.postMessage({ type: "audio-stored" });
     });
   }

@@ -205,7 +205,9 @@
     const stored = await storeInSWCache(blob);
     if (stored) {
       // Use real URL served by service worker — iOS keeps this alive
-      audioEl.src = "/generated-noise.wav?" + Date.now();
+      audioEl.src = "/generated-noise.wav";
+      // Force reload from SW cache
+      audioEl.load();
     } else {
       // Fallback to blob URL if SW not ready
       const url = URL.createObjectURL(blob);
@@ -213,6 +215,12 @@
       if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
       currentBlobUrl = url;
     }
+
+    // Wait for audio to be ready
+    await new Promise((resolve) => {
+      audioEl.addEventListener("canplaythrough", resolve, { once: true });
+      setTimeout(resolve, 3000); // fallback timeout
+    });
 
     audioEl.volume = s.volume / 100;
     if (wasPlaying) {
