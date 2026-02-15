@@ -1,4 +1,4 @@
-# White Noise PWA
+# HushHush
 
 A lightweight, installable progressive web app for generating ambient noise. Built with vanilla JavaScript and the Web Audio API — no dependencies, no build step.
 

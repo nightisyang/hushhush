@@ -1,7 +1,7 @@
 {
-  "name": "Noise Generator",
-  "short_name": "Noise",
-  "description": "White, pink, and brown noise generator with presets and sleep timer.",
+  "name": "HushHush",
+  "short_name": "HushHush",
+  "description": "Ambient noise generator with multiple noise colors, presets, and sleep timer.",
   "start_url": ".",
   "display": "standalone",
   "orientation": "any",
