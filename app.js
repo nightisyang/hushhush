@@ -340,11 +340,6 @@
     navigator.audioSession.type = "playback";
   }
 
-  // --- Service Worker ---
-  if ("serviceWorker" in navigator) {
-    navigator.serviceWorker.register("sw.js");
-  }
-
   // --- Init ---
   renderPresets();
 })();
