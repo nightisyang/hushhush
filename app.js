@@ -31,198 +31,31 @@
     { name: "Bright",      color: "white", volume: 20, lowCut: 0,   highCut: 20000, modulation: 0,  modSpeed: 15 },
   ];
 
-  // --- Noise buffer generation ---
-  const SAMPLE_RATE = 44100;
-  const BUFFER_DURATION = 30; // seconds
-
-  function fillNoise(data, color) {
-    const length = data.length;
-    switch (color) {
-      case "white":
-        for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
-        break;
-
-      case "pink": {
-        const rows = new Float32Array(16);
-        let running = 0;
-        for (let i = 0; i < length; i++) {
-          let numZeros = 0, n = i;
-          while (n !== 0 && (n & 1) === 0) { numZeros++; n >>= 1; }
-          if (numZeros < rows.length) {
-            running -= rows[numZeros];
-            const v = Math.random() * 2 - 1;
-            running += v;
-            rows[numZeros] = v;
-          }
-          data[i] = (running + (Math.random() * 2 - 1)) / 17;
-        }
-        break;
-      }
-
-      case "brown": {
-        let last = 0;
-        for (let i = 0; i < length; i++) {
-          last = (last + 0.02 * (Math.random() * 2 - 1)) / 1.02;
-          data[i] = last * 3.5;
-        }
-        break;
-      }
-
-      case "blue": {
-        let prev = 0;
-        for (let i = 0; i < length; i++) {
-          const w = Math.random() * 2 - 1;
-          data[i] = (w - prev) * 0.5;
-          prev = w;
-        }
-        break;
-      }
-
-      case "violet": {
-        let vp1 = 0, vp2 = 0;
-        for (let i = 0; i < length; i++) {
-          const w = Math.random() * 2 - 1;
-          data[i] = (w - 2 * vp1 + vp2) * 0.5;
-          vp2 = vp1;
-          vp1 = w;
-        }
-        break;
-      }
-    }
-  }
-
-  // --- Offline render: noise → filters → modulation → WAV blob ---
-  async function renderBlob(color, lowCut, highCut, mod, modSpeed) {
-    const length = SAMPLE_RATE * BUFFER_DURATION;
-    const offline = new OfflineAudioContext(1, length, SAMPLE_RATE);
-
-    // Create and fill noise buffer
-    const buffer = offline.createBuffer(1, length, SAMPLE_RATE);
-    fillNoise(buffer.getChannelData(0), color);
-
-    const source = offline.createBufferSource();
-    source.buffer = buffer;
-
-    // Highpass
-    const hp = offline.createBiquadFilter();
-    hp.type = "highpass";
-    hp.frequency.value = lowCut;
-    hp.Q.value = 0.7;
-
-    // Lowpass
-    const lp = offline.createBiquadFilter();
-    lp.type = "lowpass";
-    lp.frequency.value = highCut;
-    lp.Q.value = 0.7;
-
-    // Gain + LFO modulation
-    const modNorm = mod / 100;
-    const gain = offline.createGain();
-    gain.gain.value = 1 - modNorm * 0.4;
-
-    if (modNorm > 0) {
-      const osc = offline.createOscillator();
-      osc.type = "sine";
-      osc.frequency.value = 0.05 + (modSpeed / 100) * 1.95;
-      const depth = offline.createGain();
-      depth.gain.value = modNorm * 0.4;
-      osc.connect(depth);
-      depth.connect(gain.gain);
-      osc.start();
-    }
-
-    source.connect(hp).connect(lp).connect(gain).connect(offline.destination);
-    source.start();
-
-    const rendered = await offline.startRendering();
-    return encodeWAV(rendered);
-  }
-
-  // --- WAV encoder ---
-  function encodeWAV(audioBuffer) {
-    const data = audioBuffer.getChannelData(0);
-    const length = data.length;
-    const buf = new ArrayBuffer(44 + length * 2);
-    const v = new DataView(buf);
-
-    // RIFF header
-    writeStr(v, 0, "RIFF");
-    v.setUint32(4, 36 + length * 2, true);
-    writeStr(v, 8, "WAVE");
-
-    // fmt chunk
-    writeStr(v, 12, "fmt ");
-    v.setUint32(16, 16, true);
-    v.setUint16(20, 1, true);         // PCM
-    v.setUint16(22, 1, true);         // mono
-    v.setUint32(24, SAMPLE_RATE, true);
-    v.setUint32(28, SAMPLE_RATE * 2, true);
-    v.setUint16(32, 2, true);         // block align
-    v.setUint16(34, 16, true);        // bits per sample
-
-    // data chunk
-    writeStr(v, 36, "data");
-    v.setUint32(40, length * 2, true);
-
-    let off = 44;
-    for (let i = 0; i < length; i++, off += 2) {
-      const s = Math.max(-1, Math.min(1, data[i]));
-      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
-    }
-
-    return new Blob([buf], { type: "audio/wav" });
-  }
-
-  function writeStr(view, offset, str) {
-    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-  }
-
-  // --- Store WAV in Service Worker cache and load via real URL ---
-  function storeInSWCache(blob) {
-    return new Promise((resolve) => {
-      const sw = navigator.serviceWorker.controller;
-      if (!sw) { resolve(false); return; }
-
-      const handler = (e) => {
-        if (e.data && e.data.type === "audio-stored") {
-          navigator.serviceWorker.removeEventListener("message", handler);
-          resolve(true);
-        }
-      };
-      navigator.serviceWorker.addEventListener("message", handler);
-      sw.postMessage({ type: "store-audio", blob });
-
-      // Timeout fallback
-      setTimeout(() => { resolve(false); }, 2000);
+  // --- Server-side WAV generation (nginx serves the result as a real file) ---
+  async function generateOnServer(color, lowCut, highCut, modulation, modSpeed) {
+    const res = await fetch("/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ color, lowCut, highCut, modulation, modSpeed }),
     });
+    if (!res.ok) throw new Error("Generate failed");
   }
 
   async function loadAudio() {
     const s = getState();
-    const blob = await renderBlob(s.color, s.lowCut, s.highCut, s.modulation, s.modSpeed);
     const wasPlaying = playing && !audioEl.paused;
 
-    const stored = await storeInSWCache(blob);
-    if (stored) {
-      // Use real URL served by service worker — iOS keeps this alive
-      audioEl.src = "/generated-noise.wav";
-      // Force reload from SW cache
-      audioEl.load();
-    } else {
-      // Fallback to blob URL if SW not ready
-      const url = URL.createObjectURL(blob);
-      audioEl.src = url;
-      if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
-      currentBlobUrl = url;
-    }
+    await generateOnServer(s.color, s.lowCut, s.highCut, s.modulation, s.modSpeed);
 
-    // Wait for audio to be ready
+    // Load the server-generated WAV (real nginx URL — iOS keeps this alive)
+    audioEl.src = "/current-noise.wav?" + Date.now();
+    audioEl.volume = s.volume / 100;
+
     await new Promise((resolve) => {
       audioEl.addEventListener("canplaythrough", resolve, { once: true });
-      setTimeout(resolve, 3000); // fallback timeout
+      setTimeout(resolve, 5000);
     });
 
-    audioEl.volume = s.volume / 100;
     if (wasPlaying) {
       await audioEl.play().catch(() => {});
     }
