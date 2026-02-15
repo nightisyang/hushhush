@@ -1,9 +1,13 @@
 const http = require("http");
 const { execFile } = require("child_process");
 const path = require("path");
+const fs = require("fs");
 
 const OUTPUT = path.join(__dirname, "current-noise.wav");
+const TEMP = path.join(__dirname, "temp-noise.wav");
 const PORT = 3457;
+const DURATION = 300; // 5 minutes
+const FADE = 5;       // crossfade seconds
 
 http.createServer((req, res) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -23,8 +27,6 @@ http.createServer((req, res) => {
 
     const { color = "white", lowCut = 0, highCut = 20000, modulation = 0, modSpeed = 15 } = params;
 
-    // ffmpeg supports white, pink, brown natively
-    // blue/violet approximated with highpass on white noise
     let srcColor = color;
     const filters = [];
 
@@ -45,14 +47,18 @@ http.createServer((req, res) => {
       filters.push(`tremolo=f=${freq}:d=${depth}`);
     }
 
+    // Add fade out at end and fade in at start for seamless looping
+    filters.push(`afade=t=in:st=0:d=${FADE}`);
+    filters.push(`afade=t=out:st=${DURATION - FADE}:d=${FADE}`);
+
     const args = [
       "-y", "-f", "lavfi",
-      "-i", `anoisesrc=color=${srcColor}:duration=30:sample_rate=44100`,
+      "-i", `anoisesrc=color=${srcColor}:duration=${DURATION}:sample_rate=44100`,
     ];
     if (filters.length) args.push("-af", filters.join(","));
     args.push("-ac", "1", "-acodec", "pcm_s16le", OUTPUT);
 
-    execFile("ffmpeg", args, { timeout: 15000 }, (err) => {
+    execFile("ffmpeg", args, { timeout: 60000 }, (err) => {
       if (err) {
         res.writeHead(500, { "Content-Type": "application/json" });
         res.end(JSON.stringify({ ok: false, error: err.message }));
