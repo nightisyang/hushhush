@@ -1,5 +1,5 @@
-const CACHE = "noise-v8";
-const ASSETS = ["./", "index.html", "app.js", "silence.mp3", "manifest.json", "icon-192.svg", "icon-512.svg"];
+const CACHE = "noise-v9";
+const ASSETS = ["./", "index.html", "app.js", "manifest.json", "icon-192.svg", "icon-512.svg"];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(ASSETS)));

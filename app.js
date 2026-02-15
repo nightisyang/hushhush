@@ -1,13 +1,11 @@
 (() => {
-  let ctx, sourceNode, highpassNode, lowpassNode, volumeGain, lfo, lfoDepth;
   let playing = false, toggling = false;
-  let currentBufferedColor = null;
+  let currentBlobUrl = null;
+  let renderTimeout = null;
   let timerInterval = null, timerEnd = null;
 
-  // --- Silent audio for iOS/iPadOS background playback ---
-  const silentAudio = document.getElementById("silentAudio");
-
   // --- DOM refs ---
+  const audioEl      = document.getElementById("silentAudio");
   const playBtn      = document.getElementById("playBtn");
   const playIcon     = document.getElementById("playIcon");
   const stopIcon     = document.getElementById("stopIcon");
@@ -33,15 +31,12 @@
     { name: "Bright",      color: "white", volume: 20, lowCut: 0,   highCut: 20000, modulation: 0,  modSpeed: 15 },
   ];
 
-  // --- Noise buffer generation (runs once per color change, then loops natively) ---
-  const BUFFER_DURATION = 60; // seconds — long enough that looping is inaudible
+  // --- Noise buffer generation ---
+  const SAMPLE_RATE = 44100;
+  const BUFFER_DURATION = 30; // seconds
 
-  function generateBuffer(color) {
-    const sr = ctx.sampleRate;
-    const length = sr * BUFFER_DURATION;
-    const buffer = ctx.createBuffer(1, length, sr);
-    const data = buffer.getChannelData(0);
-
+  function fillNoise(data, color) {
+    const length = data.length;
     switch (color) {
       case "white":
         for (let i = 0; i < length; i++) data[i] = Math.random() * 2 - 1;
@@ -94,49 +89,118 @@
         break;
       }
     }
-
-    return buffer;
   }
 
-  function startSource(color) {
-    if (sourceNode) {
-      sourceNode.stop();
-      sourceNode.disconnect();
+  // --- Offline render: noise → filters → modulation → WAV blob ---
+  async function renderBlob(color, lowCut, highCut, mod, modSpeed) {
+    const length = SAMPLE_RATE * BUFFER_DURATION;
+    const offline = new OfflineAudioContext(1, length, SAMPLE_RATE);
+
+    // Create and fill noise buffer
+    const buffer = offline.createBuffer(1, length, SAMPLE_RATE);
+    fillNoise(buffer.getChannelData(0), color);
+
+    const source = offline.createBufferSource();
+    source.buffer = buffer;
+
+    // Highpass
+    const hp = offline.createBiquadFilter();
+    hp.type = "highpass";
+    hp.frequency.value = lowCut;
+    hp.Q.value = 0.7;
+
+    // Lowpass
+    const lp = offline.createBiquadFilter();
+    lp.type = "lowpass";
+    lp.frequency.value = highCut;
+    lp.Q.value = 0.7;
+
+    // Gain + LFO modulation
+    const modNorm = mod / 100;
+    const gain = offline.createGain();
+    gain.gain.value = 1 - modNorm * 0.4;
+
+    if (modNorm > 0) {
+      const osc = offline.createOscillator();
+      osc.type = "sine";
+      osc.frequency.value = 0.05 + (modSpeed / 100) * 1.95;
+      const depth = offline.createGain();
+      depth.gain.value = modNorm * 0.4;
+      osc.connect(depth);
+      depth.connect(gain.gain);
+      osc.start();
     }
-    sourceNode = ctx.createBufferSource();
-    sourceNode.buffer = generateBuffer(color);
-    sourceNode.loop = true;
-    sourceNode.connect(highpassNode);
-    sourceNode.start();
-    currentBufferedColor = color;
+
+    source.connect(hp).connect(lp).connect(gain).connect(offline.destination);
+    source.start();
+
+    const rendered = await offline.startRendering();
+    return encodeWAV(rendered);
   }
 
-  // --- Audio parameter helpers (all native Web Audio, zero JS on audio thread) ---
-  function setFilter(node, value) {
-    if (node && ctx) node.frequency.setTargetAtTime(value, ctx.currentTime, 0.02);
+  // --- WAV encoder ---
+  function encodeWAV(audioBuffer) {
+    const data = audioBuffer.getChannelData(0);
+    const length = data.length;
+    const buf = new ArrayBuffer(44 + length * 2);
+    const v = new DataView(buf);
+
+    // RIFF header
+    writeStr(v, 0, "RIFF");
+    v.setUint32(4, 36 + length * 2, true);
+    writeStr(v, 8, "WAVE");
+
+    // fmt chunk
+    writeStr(v, 12, "fmt ");
+    v.setUint32(16, 16, true);
+    v.setUint16(20, 1, true);         // PCM
+    v.setUint16(22, 1, true);         // mono
+    v.setUint32(24, SAMPLE_RATE, true);
+    v.setUint32(28, SAMPLE_RATE * 2, true);
+    v.setUint16(32, 2, true);         // block align
+    v.setUint16(34, 16, true);        // bits per sample
+
+    // data chunk
+    writeStr(v, 36, "data");
+    v.setUint32(40, length * 2, true);
+
+    let off = 44;
+    for (let i = 0; i < length; i++, off += 2) {
+      const s = Math.max(-1, Math.min(1, data[i]));
+      v.setInt16(off, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+    }
+
+    return new Blob([buf], { type: "audio/wav" });
   }
 
-  // Volume and modulation are coupled: both affect the gain node and LFO depth.
-  //
-  // Original formula:  vol *= 1 - mod * 0.8 * (1 - wave)
-  //   where wave = 0.5 * (1 + sin(t)), oscillating 0..1
-  //
-  // Expanded:  gain = vol * (1 - mod*0.4) + vol * mod * 0.4 * sin(t)
-  //   → gainNode center = vol * (1 - mod*0.4)
-  //   → LFO depth        = vol * mod * 0.4
-  function updateVolumeAndMod() {
-    if (!volumeGain || !lfoDepth || !ctx) return;
-    const vol = parseInt(volSlider.value) / 100;
-    const mod = parseInt(modSlider.value) / 100;
-    volumeGain.gain.setTargetAtTime(vol * (1 - mod * 0.4), ctx.currentTime, 0.02);
-    lfoDepth.gain.setTargetAtTime(vol * mod * 0.4, ctx.currentTime, 0.02);
+  function writeStr(view, offset, str) {
+    for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
   }
 
-  function updateModSpeed() {
-    if (!lfo || !ctx) return;
-    const speed = parseInt(modSpeedSldr.value) / 100;
-    const hz = 0.05 + speed * 1.95; // 0.05–2.0 Hz
-    lfo.frequency.setTargetAtTime(hz, ctx.currentTime, 0.02);
+  // --- Load blob into <audio> ---
+  async function loadAudio() {
+    const s = getState();
+    const blob = await renderBlob(s.color, s.lowCut, s.highCut, s.modulation, s.modSpeed);
+    const url = URL.createObjectURL(blob);
+
+    const wasPlaying = playing && !audioEl.paused;
+    audioEl.src = url;
+    audioEl.volume = s.volume / 100;
+
+    if (wasPlaying) {
+      await audioEl.play().catch(() => {});
+    }
+
+    // Clean up old blob
+    if (currentBlobUrl) URL.revokeObjectURL(currentBlobUrl);
+    currentBlobUrl = url;
+  }
+
+  // Debounced version for slider changes (avoids excessive re-renders)
+  function scheduleRerender() {
+    if (!playing) return;
+    clearTimeout(renderTimeout);
+    renderTimeout = setTimeout(() => loadAudio(), 250);
   }
 
   // --- State ---
@@ -156,7 +220,6 @@
   }
 
   function applyState(s) {
-    // UI updates (always safe, no audio dependency)
     document.querySelectorAll(".color-btn").forEach(b => b.classList.toggle("active", b.dataset.color === s.color));
 
     volSlider.value = s.volume;
@@ -174,19 +237,11 @@
     modSpeedSldr.value = s.modSpeed;
     updateModSpeedLabel();
 
-    // Push to audio (no-ops if not initialized)
-    if (ctx && s.color !== currentBufferedColor) startSource(s.color);
-    setFilter(highpassNode, s.lowCut);
-    setFilter(lowpassNode, s.highCut);
-    updateVolumeAndMod();
-    updateModSpeed();
-  }
+    // Update volume immediately (no re-render needed)
+    audioEl.volume = s.volume / 100;
 
-  function syncAllParams() {
-    setFilter(highpassNode, parseInt(lowCutSlider.value));
-    setFilter(lowpassNode, parseInt(highCutSlider.value));
-    updateVolumeAndMod();
-    updateModSpeed();
+    // Re-render if playing (new color/filters/modulation)
+    if (playing) loadAudio();
   }
 
   // --- Custom presets (localStorage) ---
@@ -255,50 +310,6 @@
     if (e.key === "Enter") document.getElementById("dialogSave").click();
   });
 
-  // --- Audio init ---
-  async function initAudio() {
-    const newCtx = new AudioContext({ sampleRate: 44100 });
-    try {
-      const hp = newCtx.createBiquadFilter();
-      hp.type = "highpass";
-      hp.frequency.value = 0;
-      hp.Q.value = 0.7;
-
-      const lp = newCtx.createBiquadFilter();
-      lp.type = "lowpass";
-      lp.frequency.value = 20000;
-      lp.Q.value = 0.7;
-
-      const vg = newCtx.createGain();
-
-      // LFO: oscillator → depth scaler → volumeGain.gain
-      const osc = newCtx.createOscillator();
-      osc.type = "sine";
-      const ld = newCtx.createGain();
-      ld.gain.value = 0;
-      osc.connect(ld);
-      ld.connect(vg.gain);
-      osc.start();
-
-      // Chain: source → highpass → lowpass → volumeGain → destination
-      hp.connect(lp).connect(vg).connect(newCtx.destination);
-
-      // Commit to module state only after everything succeeds
-      ctx = newCtx;
-      highpassNode = hp;
-      lowpassNode = lp;
-      volumeGain = vg;
-      lfo = osc;
-      lfoDepth = ld;
-
-      startSource(getActiveColor());
-      syncAllParams();
-    } catch (err) {
-      newCtx.close();
-      throw err;
-    }
-  }
-
   // --- Play / Stop ---
   async function toggle() {
     if (toggling) return;
@@ -306,17 +317,11 @@
 
     try {
       if (!playing) {
-        if (!ctx) {
-          await initAudio();
-        } else if (getActiveColor() !== currentBufferedColor) {
-          startSource(getActiveColor());
-        }
-        if (ctx.state === "suspended") await ctx.resume();
-        silentAudio.play().catch(() => {});
+        await loadAudio();
+        await audioEl.play();
         playing = true;
       } else {
-        if (ctx) await ctx.suspend();
-        silentAudio.pause();
+        audioEl.pause();
         playing = false;
         clearTimer();
         timerDisp.textContent = "";
@@ -365,29 +370,27 @@
     if (!btn) return;
     document.querySelectorAll(".color-btn").forEach(b => b.classList.remove("active"));
     btn.classList.add("active");
-    if (ctx && btn.dataset.color !== currentBufferedColor) {
-      startSource(btn.dataset.color);
-    }
     clearActivePreset();
     updateMediaSession();
+    scheduleRerender();
   });
 
-  // --- Volume ---
+  // --- Volume (real-time via audio.volume, no re-render) ---
   volSlider.addEventListener("input", () => {
     volVal.textContent = volSlider.value + "%";
-    updateVolumeAndMod();
+    audioEl.volume = parseInt(volSlider.value) / 100;
     clearActivePreset();
   });
 
-  // --- Low cut ---
+  // --- Low cut (requires re-render) ---
   lowCutSlider.addEventListener("input", () => {
     const v = parseInt(lowCutSlider.value);
     lowCutVal.textContent = v === 0 ? "Off" : v + " Hz";
-    setFilter(highpassNode, v);
     clearActivePreset();
+    scheduleRerender();
   });
 
-  // --- High cut ---
+  // --- High cut (requires re-render) ---
   function updateHighCutLabel() {
     const v = parseInt(highCutSlider.value);
     if (v >= 20000) highCutVal.textContent = "Off";
@@ -396,19 +399,19 @@
   }
   highCutSlider.addEventListener("input", () => {
     updateHighCutLabel();
-    setFilter(lowpassNode, parseInt(highCutSlider.value));
     clearActivePreset();
+    scheduleRerender();
   });
 
-  // --- Modulation ---
+  // --- Modulation (requires re-render) ---
   modSlider.addEventListener("input", () => {
     const m = parseInt(modSlider.value);
     modVal.textContent = m === 0 ? "Off" : m + "%";
-    updateVolumeAndMod();
     clearActivePreset();
+    scheduleRerender();
   });
 
-  // --- Mod speed ---
+  // --- Mod speed (requires re-render) ---
   function updateModSpeedLabel() {
     const v = parseInt(modSpeedSldr.value);
     if (v < 25) modSpeedVal.textContent = "Slow";
@@ -418,8 +421,8 @@
   }
   modSpeedSldr.addEventListener("input", () => {
     updateModSpeedLabel();
-    updateModSpeed();
     clearActivePreset();
+    scheduleRerender();
   });
 
   function clearActivePreset() {
