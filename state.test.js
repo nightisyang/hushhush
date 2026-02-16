@@ -147,11 +147,11 @@ describe('HushState', () => {
       assert.deepEqual(actions, ['STOP_AUDIO', 'UI_STOPPED']);
     });
 
-    it('SETTINGS_CHANGED → generating', () => {
+    it('SETTINGS_CHANGED → regenerating (no STOP_AUDIO)', () => {
       const { machine, actions } = send(playing, 'SETTINGS_CHANGED');
-      assert.equal(machine.phase, 'generating');
+      assert.equal(machine.phase, 'regenerating');
       assert.equal(machine.dirty, false);
-      assert.deepEqual(actions, ['STOP_AUDIO', 'UI_LOADING', 'GENERATE']);
+      assert.deepEqual(actions, ['UI_LOADING', 'GENERATE']);
     });
 
     it('GEN_COMPLETE → playing (stale, no-op)', () => {
@@ -169,6 +169,80 @@ describe('HushState', () => {
     it('ERROR → playing (stale, no-op)', () => {
       const { machine, actions } = send(playing, 'ERROR');
       assert.equal(machine.phase, 'playing');
+      assert.deepEqual(actions, []);
+    });
+  });
+
+  // === Regenerating state transitions ===
+
+  describe('regenerating', () => {
+    let regenerating;
+    {
+      let m = send(create(), 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      regenerating = send(m, 'SETTINGS_CHANGED').machine;
+    }
+
+    it('STOP → idle', () => {
+      const { machine, actions } = send(regenerating, 'STOP');
+      assert.equal(machine.phase, 'idle');
+      assert.equal(machine.dirty, false);
+      assert.deepEqual(actions, ['STOP_AUDIO', 'UI_STOPPED']);
+    });
+
+    it('PLAY → idle (toggle off)', () => {
+      const { machine, actions } = send(regenerating, 'PLAY');
+      assert.equal(machine.phase, 'idle');
+      assert.deepEqual(actions, ['STOP_AUDIO', 'UI_STOPPED']);
+    });
+
+    it('SETTINGS_CHANGED → regenerating (dirty, no actions)', () => {
+      const { machine, actions } = send(regenerating, 'SETTINGS_CHANGED');
+      assert.equal(machine.phase, 'regenerating');
+      assert.equal(machine.dirty, true);
+      assert.deepEqual(actions, []);
+    });
+
+    it('GEN_COMPLETE (clean) → regenerating, LOAD_AUDIO', () => {
+      const { machine, actions } = send(regenerating, 'GEN_COMPLETE');
+      assert.equal(machine.phase, 'regenerating');
+      assert.equal(machine.dirty, false);
+      assert.deepEqual(actions, ['LOAD_AUDIO']);
+    });
+
+    it('GEN_COMPLETE (dirty) → regenerating, GENERATE (restart)', () => {
+      const dirtyRegen = send(regenerating, 'SETTINGS_CHANGED').machine;
+      const { machine, actions } = send(dirtyRegen, 'GEN_COMPLETE');
+      assert.equal(machine.phase, 'regenerating');
+      assert.equal(machine.dirty, false);
+      assert.deepEqual(actions, ['GENERATE']);
+    });
+
+    it('AUDIO_READY (clean) → playing', () => {
+      const { machine, actions } = send(regenerating, 'AUDIO_READY');
+      assert.equal(machine.phase, 'playing');
+      assert.equal(machine.dirty, false);
+      assert.deepEqual(actions, ['PLAY_AUDIO', 'UI_PLAYING']);
+    });
+
+    it('AUDIO_READY (dirty) → regenerating, GENERATE (restart)', () => {
+      const dirtyRegen = send(regenerating, 'SETTINGS_CHANGED').machine;
+      const { machine, actions } = send(dirtyRegen, 'AUDIO_READY');
+      assert.equal(machine.phase, 'regenerating');
+      assert.equal(machine.dirty, false);
+      assert.deepEqual(actions, ['GENERATE']);
+    });
+
+    it('ERROR → playing (keep old audio)', () => {
+      const { machine, actions } = send(regenerating, 'ERROR');
+      assert.equal(machine.phase, 'playing');
+      assert.equal(machine.dirty, false);
+      assert.deepEqual(actions, ['SHOW_ERROR']);
+    });
+
+    it('PLAY_CACHED → regenerating (no-op)', () => {
+      const { machine, actions } = send(regenerating, 'PLAY_CACHED');
+      assert.equal(machine.phase, 'regenerating');
       assert.deepEqual(actions, []);
     });
   });
@@ -286,6 +360,78 @@ describe('HushState', () => {
       const r = send(m, 'ERROR');
       assert.equal(r.machine.phase, 'idle');
       assert.deepEqual(r.actions, ['SHOW_ERROR', 'UI_STOPPED']);
+    });
+
+    it('regeneration: settings change while playing keeps audio running', () => {
+      let m = create();
+      m = send(m, 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      assert.equal(m.phase, 'playing');
+
+      // Settings change → regenerating (no STOP_AUDIO)
+      let r = send(m, 'SETTINGS_CHANGED');
+      m = r.machine;
+      assert.equal(m.phase, 'regenerating');
+      assert.ok(!r.actions.includes('STOP_AUDIO'));
+      assert.deepEqual(r.actions, ['UI_LOADING', 'GENERATE']);
+
+      // Generation completes → load audio
+      r = send(m, 'GEN_COMPLETE');
+      m = r.machine;
+      assert.deepEqual(r.actions, ['LOAD_AUDIO']);
+
+      // Audio loaded → play (crossfade)
+      r = send(m, 'AUDIO_READY');
+      m = r.machine;
+      assert.equal(m.phase, 'playing');
+      assert.deepEqual(r.actions, ['PLAY_AUDIO', 'UI_PLAYING']);
+    });
+
+    it('regeneration error keeps old audio playing', () => {
+      let m = create();
+      m = send(m, 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      m = send(m, 'SETTINGS_CHANGED').machine;
+      assert.equal(m.phase, 'regenerating');
+
+      const r = send(m, 'ERROR');
+      assert.equal(r.machine.phase, 'playing');
+      assert.deepEqual(r.actions, ['SHOW_ERROR']);
+    });
+
+    it('multiple settings changes during regeneration collapse', () => {
+      let m = create();
+      m = send(m, 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      m = send(m, 'SETTINGS_CHANGED').machine;
+      assert.equal(m.phase, 'regenerating');
+
+      // Multiple settings changes → just dirty
+      m = send(m, 'SETTINGS_CHANGED').machine;
+      m = send(m, 'SETTINGS_CHANGED').machine;
+      assert.equal(m.dirty, true);
+
+      // GEN_COMPLETE restarts
+      let r = send(m, 'GEN_COMPLETE');
+      m = r.machine;
+      assert.equal(m.dirty, false);
+      assert.deepEqual(r.actions, ['GENERATE']);
+
+      // Next GEN_COMPLETE proceeds
+      r = send(m, 'GEN_COMPLETE');
+      assert.deepEqual(r.actions, ['LOAD_AUDIO']);
+    });
+
+    it('stop during regeneration stops everything', () => {
+      let m = create();
+      m = send(m, 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      m = send(m, 'SETTINGS_CHANGED').machine;
+      assert.equal(m.phase, 'regenerating');
+
+      const r = send(m, 'STOP');
+      assert.equal(r.machine.phase, 'idle');
+      assert.deepEqual(r.actions, ['STOP_AUDIO', 'UI_STOPPED']);
     });
 
     it('stop + replay race: old generation stale in new generating state', () => {

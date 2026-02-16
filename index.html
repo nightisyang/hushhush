@@ -10,6 +10,7 @@
   <meta name="format-detection" content="telephone=no">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" as="style">
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
     :root {
@@ -153,7 +154,7 @@
       font-size: 0.8rem;
       font-weight: 400;
       cursor: pointer;
-      transition: all 0.25s;
+      transition: border-color 0.25s, color 0.25s, background 0.25s;
       display: flex; align-items: center; gap: 0.4rem;
     }
     .color-btn::before {
@@ -239,7 +240,7 @@
       font-size: 0.78rem;
       font-weight: 400;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
     .preset-btn:hover { border-color: var(--text-dim); color: var(--text); }
     .preset-btn.active {
@@ -266,7 +267,7 @@
       font-size: 0.76rem;
       font-weight: 400;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
     .action-btn:hover { border-color: var(--accent); color: var(--text); }
 
@@ -282,7 +283,7 @@
       font-size: 0.76rem;
       font-weight: 400;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
     .timer-btn:hover { border-color: var(--text-dim); color: var(--text); }
     .timer-btn.active {
@@ -321,7 +322,7 @@
       font-size: 0.68rem;
       font-weight: 500;
       letter-spacing: 0.02em;
-      transition: all 0.3s;
+      transition: border-color 0.3s, color 0.3s, background 0.3s;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
     .utility-btn:hover, .utility-btn:active {
@@ -388,7 +389,7 @@
       font-size: 0.82rem;
       font-weight: 400;
       cursor: pointer;
-      transition: all 0.2s;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
     .dialog-btns .cancel {
       background: var(--border);
@@ -430,7 +431,7 @@
       border-radius: 12px;
       border: 1px solid var(--border);
       background: rgba(255,255,255,0.015);
-      transition: all 0.2s;
+      transition: border-color 0.2s, color 0.2s, background 0.2s;
     }
     .install-steps .platform.highlight {
       border-color: var(--accent);
@@ -601,7 +602,7 @@
   <audio id="audioA" playsinline preload="auto" loop></audio>
   <audio id="audioB" playsinline preload="auto" loop></audio>
 
-  <script src="state.js?v=6"></script>
-  <script src="app.js?v=6"></script>
+  <script src="state.js?v=7"></script>
+  <script src="app.js?v=7"></script>
 </body>
 </html>
