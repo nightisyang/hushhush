@@ -5,9 +5,6 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>HushHush</title>
   <meta name="theme-color" content="#1a1a2e">
-  <link rel="apple-touch-icon" href="icon-192.svg">
-
-  <!-- Prevent zoom / double-tap delay on mobile -->
   <meta name="format-detection" content="telephone=no">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -24,58 +21,48 @@
       -webkit-user-select: none;
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
       overflow-y: auto;
-      -webkit-overflow-scrolling: touch;
     }
 
-    .app {
-      width: 100%;
-      max-width: 440px;
-      padding: 1.5rem 1.25rem 2.5rem;
-    }
-
-    @media (min-height: 700px) {
-      body { align-items: center; }
-    }
+    .app { width: 100%; max-width: 440px; padding: 1.5rem 1.25rem 2.5rem; }
+    @media (min-height: 700px) { body { align-items: center; } }
 
     h1 {
       font-size: 1.3rem;
       font-weight: 600;
       text-align: center;
-      margin-bottom: 1.8rem;
+      margin-bottom: 0.5rem;
       color: #a0a0c0;
       letter-spacing: 0.05em;
     }
 
+    .status {
+      text-align: center;
+      font-size: 0.8rem;
+      color: #6c63ff;
+      margin-bottom: 1.2rem;
+      min-height: 1.2em;
+    }
+
     /* Play button */
     .play-btn {
-      width: 88px;
-      height: 88px;
+      width: 88px; height: 88px;
       border-radius: 50%;
       border: 3px solid #4a4a6a;
       background: transparent;
       color: #e0e0e0;
       cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      display: flex; align-items: center; justify-content: center;
       margin: 0 auto 1.8rem;
       transition: border-color 0.2s, background 0.2s;
     }
     .play-btn:hover { border-color: #7a7aaa; }
-    .play-btn.active {
-      border-color: #6c63ff;
-      background: rgba(108, 99, 255, 0.1);
-    }
+    .play-btn.active { border-color: #6c63ff; background: rgba(108, 99, 255, 0.1); }
+    .play-btn.loading { border-color: #6c63ff; animation: pulse 1.2s ease-in-out infinite; }
+    @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
     .play-btn svg { width: 32px; height: 32px; fill: currentColor; }
 
     /* Color selector */
-    .colors {
-      display: flex;
-      gap: 0.4rem;
-      justify-content: center;
-      margin-bottom: 1.6rem;
-      flex-wrap: wrap;
-    }
+    .colors { display: flex; gap: 0.4rem; justify-content: center; margin-bottom: 1.6rem; flex-wrap: wrap; }
     .color-btn {
       padding: 0.4rem 0.8rem;
       border-radius: 999px;
@@ -87,70 +74,43 @@
       transition: all 0.2s;
     }
     .color-btn:hover { border-color: #6a6a8a; }
-    .color-btn.active {
-      border-color: #6c63ff;
-      color: #fff;
-      background: rgba(108, 99, 255, 0.15);
-    }
+    .color-btn.active { border-color: #6c63ff; color: #fff; background: rgba(108, 99, 255, 0.15); }
 
     /* Sliders */
-    .control {
-      margin-bottom: 1.2rem;
-    }
+    .control { margin-bottom: 1.2rem; }
     .control label {
-      display: flex;
-      justify-content: space-between;
-      font-size: 0.75rem;
-      color: #8888a8;
+      display: flex; justify-content: space-between;
+      font-size: 0.75rem; color: #8888a8;
       margin-bottom: 0.35rem;
-      text-transform: uppercase;
-      letter-spacing: 0.06em;
+      text-transform: uppercase; letter-spacing: 0.06em;
     }
     input[type="range"] {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 100%;
-      height: 6px;
-      border-radius: 3px;
-      background: #2a2a4a;
-      outline: none;
+      -webkit-appearance: none; appearance: none;
+      width: 100%; height: 6px;
+      border-radius: 3px; background: #2a2a4a; outline: none;
       touch-action: none;
     }
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: #6c63ff;
-      cursor: pointer;
+      width: 28px; height: 28px;
+      border-radius: 50%; background: #6c63ff; cursor: pointer;
     }
     input[type="range"]::-moz-range-thumb {
-      width: 28px;
-      height: 28px;
-      border-radius: 50%;
-      background: #6c63ff;
-      cursor: pointer;
-      border: none;
+      width: 28px; height: 28px;
+      border-radius: 50%; background: #6c63ff; cursor: pointer; border: none;
     }
 
     /* Section headers */
     .section-label {
-      font-size: 0.7rem;
-      color: #6a6a8a;
-      text-transform: uppercase;
-      letter-spacing: 0.1em;
+      font-size: 0.7rem; color: #6a6a8a;
+      text-transform: uppercase; letter-spacing: 0.1em;
       margin: 1.6rem 0 0.8rem;
       border-top: 1px solid #2a2a4a;
       padding-top: 1rem;
     }
 
     /* Presets */
-    .presets {
-      display: flex;
-      gap: 0.4rem;
-      flex-wrap: wrap;
-      margin-bottom: 0.6rem;
-    }
+    .presets { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
     .preset-btn {
       padding: 0.4rem 0.75rem;
       border-radius: 999px;
@@ -160,15 +120,10 @@
       font-size: 0.8rem;
       cursor: pointer;
       transition: all 0.2s;
-      position: relative;
     }
     .preset-btn:hover { border-color: #6a6a8a; color: #d0d0e8; }
-    .preset-btn.active {
-      border-color: #6c63ff;
-      color: #fff;
-      background: rgba(108, 99, 255, 0.15);
-    }
-    .preset-btn.custom .delete-x {
+    .preset-btn.active { border-color: #6c63ff; color: #fff; background: rgba(108, 99, 255, 0.15); }
+    .preset-btn .delete-x {
       display: none;
       margin-left: 0.3rem;
       color: #ff6b6b;
@@ -176,11 +131,7 @@
     }
     .preset-btn.custom:hover .delete-x { display: inline; }
 
-    .preset-actions {
-      display: flex;
-      gap: 0.4rem;
-      margin-top: 0.5rem;
-    }
+    .preset-actions { display: flex; gap: 0.4rem; margin-top: 0.5rem; }
     .action-btn {
       padding: 0.35rem 0.7rem;
       border-radius: 999px;
@@ -194,11 +145,7 @@
     .action-btn:hover { border-color: #6c63ff; color: #b0b0d0; }
 
     /* Timer */
-    .timer-row {
-      display: flex;
-      gap: 0.4rem;
-      justify-content: center;
-    }
+    .timer-row { display: flex; gap: 0.4rem; justify-content: center; }
     .timer-btn {
       padding: 0.35rem 0.7rem;
       border-radius: 999px;
@@ -210,86 +157,48 @@
       transition: all 0.2s;
     }
     .timer-btn:hover { border-color: #6a6a8a; color: #c0c0d8; }
-    .timer-btn.active {
-      border-color: #6c63ff;
-      color: #fff;
-      background: rgba(108, 99, 255, 0.15);
-    }
-    .timer-display {
-      color: #6c63ff;
-      font-size: 0.82rem;
-      margin-top: 0.6rem;
-      min-height: 1.2em;
-      text-align: center;
-    }
+    .timer-btn.active { border-color: #6c63ff; color: #fff; background: rgba(108, 99, 255, 0.15); }
+    .timer-display { color: #6c63ff; font-size: 0.82rem; margin-top: 0.6rem; min-height: 1.2em; text-align: center; }
 
     /* Save dialog */
     .dialog-overlay {
-      display: none;
-      position: fixed;
-      inset: 0;
+      display: none; position: fixed; inset: 0;
       background: rgba(0,0,0,0.6);
-      align-items: center;
-      justify-content: center;
-      z-index: 10;
+      align-items: center; justify-content: center; z-index: 10;
     }
     .dialog-overlay.open { display: flex; }
     .dialog {
-      background: #22223a;
-      border: 1px solid #3a3a5a;
-      border-radius: 12px;
-      padding: 1.5rem;
-      width: 300px;
+      background: #22223a; border: 1px solid #3a3a5a;
+      border-radius: 12px; padding: 1.5rem; width: 300px;
     }
-    .dialog h3 {
-      font-size: 1rem;
-      margin-bottom: 1rem;
-      color: #c0c0d8;
-    }
+    .dialog h3 { font-size: 1rem; margin-bottom: 1rem; color: #c0c0d8; }
     .dialog input[type="text"] {
-      width: 100%;
-      padding: 0.5rem 0.7rem;
-      border-radius: 8px;
-      border: 1px solid #4a4a6a;
-      background: #1a1a2e;
-      color: #e0e0e0;
-      font-size: 0.9rem;
-      outline: none;
-      margin-bottom: 1rem;
+      width: 100%; padding: 0.5rem 0.7rem;
+      border-radius: 8px; border: 1px solid #4a4a6a;
+      background: #1a1a2e; color: #e0e0e0;
+      font-size: 0.9rem; outline: none; margin-bottom: 1rem;
     }
     .dialog input[type="text"]:focus { border-color: #6c63ff; }
-    .dialog-btns {
-      display: flex;
-      gap: 0.5rem;
-      justify-content: flex-end;
-    }
+    .dialog-btns { display: flex; gap: 0.5rem; justify-content: flex-end; }
     .dialog-btns button {
-      padding: 0.4rem 1rem;
-      border-radius: 8px;
-      border: none;
-      font-size: 0.85rem;
-      cursor: pointer;
+      padding: 0.4rem 1rem; border-radius: 8px; border: none;
+      font-size: 0.85rem; cursor: pointer;
     }
-    .dialog-btns .cancel {
-      background: #3a3a5a;
-      color: #b0b0c8;
-    }
-    .dialog-btns .save {
-      background: #6c63ff;
-      color: #fff;
-    }
+    .dialog-btns .cancel { background: #3a3a5a; color: #b0b0c8; }
+    .dialog-btns .save { background: #6c63ff; color: #fff; }
   </style>
 </head>
 <body>
   <div class="app">
     <h1>HUSHHUSH</h1>
+    <div class="status" id="status"></div>
 
     <button class="play-btn" id="playBtn" aria-label="Play">
       <svg id="playIcon" viewBox="0 0 24 24"><polygon points="6,3 20,12 6,21"/></svg>
       <svg id="stopIcon" viewBox="0 0 24 24" style="display:none"><rect x="5" y="5" width="14" height="14" rx="2"/></svg>
+      <svg id="loadIcon" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="42 14" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>
     </button>
 
-    <!-- Noise color -->
     <div class="colors" id="colors">
       <button class="color-btn active" data-color="white">White</button>
       <button class="color-btn" data-color="pink">Pink</button>
@@ -298,27 +207,22 @@
       <button class="color-btn" data-color="violet">Violet</button>
     </div>
 
-    <!-- Tuning sliders -->
     <div class="control">
       <label><span>Volume</span><span id="volVal">30%</span></label>
       <input type="range" id="volume" min="0" max="100" value="30">
     </div>
-
     <div class="control">
       <label><span>Low Cut</span><span id="lowCutVal">Off</span></label>
       <input type="range" id="lowCut" min="0" max="500" value="0">
     </div>
-
     <div class="control">
       <label><span>High Cut</span><span id="highCutVal">Off</span></label>
       <input type="range" id="highCut" min="200" max="20000" value="20000">
     </div>
-
     <div class="control">
       <label><span>Modulation</span><span id="modVal">Off</span></label>
       <input type="range" id="modulation" min="0" max="100" value="0">
     </div>
-
     <div class="control">
       <label><span>Mod Speed</span><span id="modSpeedVal">Slow</span></label>
       <input type="range" id="modSpeed" min="1" max="100" value="15">
@@ -333,7 +237,7 @@
 
     <!-- Timer -->
     <div class="section-label">Sleep Timer</div>
-    <div class="timer-row">
+    <div class="timer-row" id="timerRow">
       <button class="timer-btn active" data-min="0">Off</button>
       <button class="timer-btn" data-min="15">15m</button>
       <button class="timer-btn" data-min="30">30m</button>
@@ -355,8 +259,9 @@
     </div>
   </div>
 
-  <!-- Audio element — plays WAV blobs generated by app.js -->
-  <audio id="silentAudio" loop playsinline></audio>
+  <!-- Two audio elements for gapless double-buffered looping -->
+  <audio id="audioA" playsinline preload="auto"></audio>
+  <audio id="audioB" playsinline preload="auto"></audio>
 
   <script src="app.js"></script>
 </body>
