@@ -429,9 +429,6 @@ function executeActions(actions) {
         break;
     }
   }
-  pendingBlob = null;
-  pendingSettings = null;
-  pendingError = null;
 }
 
 async function executeGeneration() {
