@@ -62,6 +62,24 @@ let playingSettings = null;
 let crossfading = false;
 let regenLoad = false;
 
+// ===== Live AudioContext for volume control (iOS ignores <audio>.volume) =====
+let liveCtx = null;
+let gainNode = null;
+function ensureLiveContext() {
+  if (liveCtx) return;
+  liveCtx = new (window.AudioContext || window.webkitAudioContext)();
+  gainNode = liveCtx.createGain();
+  gainNode.gain.value = cachedVolume;
+  gainNode.connect(liveCtx.destination);
+  var srcA = liveCtx.createMediaElementSource(audioA);
+  var srcB = liveCtx.createMediaElementSource(audioB);
+  srcA.connect(gainNode);
+  srcB.connect(gainNode);
+}
+function resumeLiveContext() {
+  if (liveCtx && liveCtx.state === 'suspended') liveCtx.resume();
+}
+
 // ===== Blob Cache =====
 const blobCache = new Map();
 
@@ -268,8 +286,6 @@ function loadBlob(blob) {
   audioB.src = currentBlobB;
   audioA.load();
   audioB.load();
-  audioA.volume = cachedVolume;
-  audioB.volume = cachedVolume;
 }
 
 function resetBuffers() {
@@ -300,15 +316,14 @@ function handleTimeUpdate(e) {
     crossfading = true;
 
     nextAudio.currentTime = 0;
-    nextAudio.volume = cachedVolume;
     nextAudio.play().catch(() => {});
 
     const old = activeAudio;
     activeAudio = nextAudio;
     nextAudio = old;
 
-    // Mute old audio after overlap instead of pausing (pause triggers lock screen "paused")
-    setTimeout(() => { old.volume = 0; crossfading = false; }, timeLeft * 1000);
+    // Let overlap finish then stop old element (fade is baked into WAV)
+    setTimeout(() => { crossfading = false; }, timeLeft * 1000);
 
     // Re-assert media session after crossfade so lock screen stays attached
     if (playingSettings) updateMediaSession(playingSettings);
@@ -340,11 +355,23 @@ function updatePlayUI(state) {
   playBtn.classList.toggle("loading", state === "loading");
 }
 
+var statusTimer = null;
+function setStatus(text) {
+  if (statusEl.textContent === text) return;
+  clearTimeout(statusTimer);
+  statusEl.classList.add('fade-out');
+  statusTimer = setTimeout(function() {
+    statusEl.textContent = text;
+    statusEl.classList.remove('fade-out');
+  }, 300);
+}
+
 // ===== Playback Control (State Machine) =====
 function dispatch(event) {
   const result = HushState.send(machine, event);
   machine = result.machine;
   executeActions(result.actions);
+  document.getElementById('timerRow').classList.toggle('disabled', machine.phase === 'idle');
 }
 
 function executeActions(actions) {
@@ -359,13 +386,13 @@ function executeActions(actions) {
         break;
       case 'UI_PLAYING':
         updatePlayUI('playing');
-        statusEl.textContent = 'Playing';
+        setStatus('Playing');
         playingSettings = pendingSettings || getSettings();
         updateMediaSession(playingSettings);
         break;
       case 'UI_STOPPED':
         updatePlayUI('stopped');
-        statusEl.textContent = '';
+        setStatus('Paused');
         playingSettings = null;
         clearTimer();
         if (hasMediaSession) navigator.mediaSession.playbackState = 'paused';
@@ -380,7 +407,6 @@ function executeActions(actions) {
         if (regenLoad) {
           // Regeneration: crossfade from old audio to newly generated audio
           nextAudio.currentTime = 0;
-          nextAudio.volume = cachedVolume;
           nextAudio.play().then(() => {
             if (machine.phase === 'playing') updateMediaSession(pendingSettings || getSettings());
           }).catch(() => {});
@@ -391,7 +417,6 @@ function executeActions(actions) {
           const rBlob = pendingBlob;
           const rKey = settingsKey(pendingSettings);
           setTimeout(() => {
-            oldEl.volume = 0;
             if (rToken === genToken) {
               const url = URL.createObjectURL(rBlob);
               if (oldEl === audioA) {
@@ -408,7 +433,6 @@ function executeActions(actions) {
           }, FADE * 1000);
         } else {
           resetBuffers();
-          activeAudio.volume = cachedVolume;
           activeAudio.play().then(() => {
             if (machine.phase === 'playing') updateMediaSession(pendingSettings || getSettings());
           }).catch(() => {});
@@ -418,13 +442,12 @@ function executeActions(actions) {
         break;
       case 'RESUME_AUDIO':
         resetBuffers();
-        activeAudio.volume = cachedVolume;
         activeAudio.play().then(() => {
           if (machine.phase === 'playing') updateMediaSession(getSettings());
         }).catch(() => {});
         break;
       case 'SHOW_ERROR':
-        statusEl.textContent = 'Error: ' + (pendingError ? pendingError.message : 'Unknown');
+        setStatus('Error: ' + (pendingError ? pendingError.message : 'Unknown'));
         if (machine.phase === 'playing') updatePlayUI('playing');
         break;
     }
@@ -435,7 +458,7 @@ async function executeGeneration() {
   const token = ++genToken;
   const settings = getSettings();
   pendingSettings = settings;
-  statusEl.textContent = 'Generating ' + settings.color + ' noise\u2026';
+  setStatus('Generating ' + settings.color + ' noise\u2026');
 
   try {
     const blob = await generateNoise(settings);
@@ -465,7 +488,6 @@ async function executeLoadAudio() {
     }
     nextAudio.src = url;
     nextAudio.load();
-    nextAudio.volume = cachedVolume;
     try {
       await waitForReady(nextAudio);
       if (token !== genToken) return;
@@ -490,6 +512,8 @@ async function executeLoadAudio() {
 }
 
 playBtn.addEventListener("click", () => {
+  ensureLiveContext();
+  resumeLiveContext();
   if (machine.phase !== 'idle') {
     dispatch('STOP');
   } else {
@@ -501,6 +525,7 @@ playBtn.addEventListener("click", () => {
 // ===== Media Session =====
 if (hasMediaSession) {
   navigator.mediaSession.setActionHandler("play", () => {
+    resumeLiveContext();
     if (machine.phase === 'idle') {
       const key = settingsKey(getSettings());
       dispatch(key === loadedSettingsKey && currentBlobA ? 'PLAY_CACHED' : 'PLAY');
@@ -558,32 +583,41 @@ document.getElementById("colors").addEventListener("click", (e) => {
 });
 
 // ===== UI: Sliders =====
+function updateSliderFill(slider) {
+  var min = parseFloat(slider.min), max = parseFloat(slider.max);
+  slider.style.setProperty('--fill', ((parseFloat(slider.value) - min) / (max - min) * 100) + '%');
+}
+
 volSlider.addEventListener("input", () => {
   volValEl.textContent = volSlider.value + "%";
+  updateSliderFill(volSlider);
   cachedVolume = parseInt(volSlider.value) / 100;
-  audioA.volume = cachedVolume;
-  audioB.volume = cachedVolume;
+  if (gainNode) gainNode.gain.value = cachedVolume;
   saveSettings();
 });
 
 lowCutSlider.addEventListener("input", () => {
   const v = parseInt(lowCutSlider.value);
   lowCutValEl.textContent = v === 0 ? "Off" : v + " Hz";
+  updateSliderFill(lowCutSlider);
 });
 
 highCutSlider.addEventListener("input", () => {
   const v = parseInt(highCutSlider.value);
   highCutValEl.textContent = v >= 20000 ? "Off" : v >= 1000 ? (v / 1000).toFixed(1) + " kHz" : v + " Hz";
+  updateSliderFill(highCutSlider);
 });
 
 const MOD_LABELS = ["Slow", "Medium", "Fast", "Very fast"];
 modSlider.addEventListener("input", () => {
   const v = parseInt(modSlider.value);
   modValEl.textContent = v === 0 ? "Off" : v + "%";
+  updateSliderFill(modSlider);
 });
 
 modSpeedSlider.addEventListener("input", () => {
   modSpeedValEl.textContent = MOD_LABELS[Math.min(parseInt(modSpeedSlider.value) / 25 | 0, 3)];
+  updateSliderFill(modSpeedSlider);
 });
 
 function deactivatePreset() {
@@ -630,6 +664,10 @@ function updateSliderLabels(p) {
   highCutValEl.textContent = p.highCut >= 20000 ? "Off" : p.highCut >= 1000 ? (p.highCut / 1000).toFixed(1) + " kHz" : p.highCut + " Hz";
   modValEl.textContent = p.mod === 0 ? "Off" : p.mod + "%";
   modSpeedValEl.textContent = MOD_LABELS[Math.min(p.modSpeed / 25 | 0, 3)];
+  updateSliderFill(lowCutSlider);
+  updateSliderFill(highCutSlider);
+  updateSliderFill(modSlider);
+  updateSliderFill(modSpeedSlider);
 }
 
 function applyPreset(preset) {
@@ -862,5 +900,24 @@ function restoreSettings() {
 // ===== Init =====
 restoreSettings();
 renderPresets();
-statusEl.textContent = "Ready";
+[volSlider, lowCutSlider, highCutSlider, modSlider, modSpeedSlider].forEach(updateSliderFill);
+if (activePreset) {
+  statusEl.textContent = "Ready \u00b7 " + activePreset;
+} else {
+  statusEl.textContent = "Ready \u00b7 " + activeColor.charAt(0).toUpperCase() + activeColor.slice(1) + " noise";
+}
+document.getElementById('timerRow').classList.add('disabled');
+
+// Customize toggle
+var customizeToggle = document.getElementById('customizeToggle');
+var advancedControls = document.getElementById('advancedControls');
+if (localStorage.getItem('hushhush_customize') === 'open') {
+  advancedControls.classList.add('open');
+  customizeToggle.classList.add('open');
+}
+customizeToggle.addEventListener('click', function() {
+  var isOpen = advancedControls.classList.toggle('open');
+  customizeToggle.classList.toggle('open');
+  localStorage.setItem('hushhush_customize', isOpen ? 'open' : '');
+});
 
