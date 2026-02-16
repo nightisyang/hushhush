@@ -58,8 +58,9 @@ let loadedSettingsKey = null;
 let activeColor = "white";
 let cachedVolume = 0.3;
 let playingSettings = null;
-let crossfading = false;
 let regenLoad = false;
+var crossfade = CrossfadeEngine.create({ fadeDuration: FADE, bufferDuration: DURATION });
+const audioElements = [audioA, audioB];
 
 // ===== Live AudioContext for volume control (iOS ignores <audio>.volume) =====
 let liveCtx = null;
@@ -308,25 +309,30 @@ function waitForReady(el) {
 function handleTimeUpdate(e) {
   const audio = e.target;
   if (audio !== activeAudio || (machine.phase !== 'playing' && machine.phase !== 'regenerating')) return;
+  if (regenLoad) return;
 
   const timeLeft = audio.duration - audio.currentTime;
-  if (timeLeft <= FADE) {
-    if (crossfading || regenLoad) return;
-    crossfading = true;
+  if (!CrossfadeEngine.shouldTrigger(crossfade, timeLeft)) return;
 
-    nextAudio.currentTime = 0;
-    nextAudio.play().catch(() => {});
+  const result = CrossfadeEngine.startCrossfade(crossfade, timeLeft);
+  crossfade = result.engine;
 
-    const old = activeAudio;
-    activeAudio = nextAudio;
-    nextAudio = old;
+  const oldEl = audioElements[result.oldIndex];
+  const newEl = audioElements[crossfade.activeIndex];
+  activeAudio = newEl;
+  nextAudio = oldEl;
 
-    // Let overlap finish then stop old element (fade is baked into WAV)
-    setTimeout(() => { crossfading = false; }, timeLeft * 1000);
+  newEl.currentTime = result.nextStartOffset;
+  newEl.play().catch(() => {});
 
-    // Re-assert media session after crossfade so lock screen stays attached
-    if (playingSettings) updateMediaSession(playingSettings);
-  }
+  // Pause old element after overlap to prevent it looping back
+  setTimeout(() => {
+    oldEl.pause();
+    crossfade = CrossfadeEngine.completeCrossfade(crossfade);
+  }, result.pauseDelay);
+
+  // Re-assert media session after crossfade so lock screen stays attached
+  if (playingSettings) updateMediaSession(playingSettings);
 }
 
 audioA.addEventListener("timeupdate", handleTimeUpdate);
@@ -672,14 +678,38 @@ function updateSliderLabels(p) {
   updateSliderFill(modSpeedSlider);
 }
 
+var sliderAnimations = new Map();
+
+function animateSlider(slider, target, duration) {
+  var prev = sliderAnimations.get(slider);
+  if (prev) cancelAnimationFrame(prev);
+  var from = parseFloat(slider.value);
+  var to = target;
+  if (from === to) { updateSliderFill(slider); return; }
+  var start = performance.now();
+  function step(now) {
+    var t = Math.min((now - start) / duration, 1);
+    // ease-out cubic
+    var ease = 1 - Math.pow(1 - t, 3);
+    slider.value = from + (to - from) * ease;
+    updateSliderFill(slider);
+    if (t < 1) {
+      sliderAnimations.set(slider, requestAnimationFrame(step));
+    } else {
+      sliderAnimations.delete(slider);
+    }
+  }
+  sliderAnimations.set(slider, requestAnimationFrame(step));
+}
+
 function applyPreset(preset) {
   colorBtns.forEach(b => b.classList.toggle("active", b.dataset.color === preset.color));
   activeColor = preset.color;
 
-  lowCutSlider.value = preset.lowCut;
-  highCutSlider.value = preset.highCut;
-  modSlider.value = preset.mod;
-  modSpeedSlider.value = preset.modSpeed;
+  animateSlider(lowCutSlider, preset.lowCut, 300);
+  animateSlider(highCutSlider, preset.highCut, 300);
+  animateSlider(modSlider, preset.mod, 300);
+  animateSlider(modSpeedSlider, preset.modSpeed, 300);
   updateSliderLabels(preset);
 
   activePreset = preset.name;
