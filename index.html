@@ -48,10 +48,30 @@
       padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
       overflow-y: auto;
     }
-
     .app {
+      position: relative;
       width: 100%; max-width: 440px;
       padding: 2rem 1.5rem 3rem;
+    }
+    body::before {
+      content: '';
+      position: fixed; inset: 0;
+      background: radial-gradient(ellipse at 50% 35%,
+        rgba(20, 31, 40, 0.4) 0%,
+        transparent 35%,
+        rgba(8, 10, 16, 0.35) 100%);
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 1.5s ease;
+      z-index: -1;
+    }
+    body.playing::before {
+      opacity: 1;
+      animation: ambientBreathe 8s ease-in-out 1.5s infinite;
+    }
+    @keyframes ambientBreathe {
+      0%, 100% { opacity: 0.88; }
+      50% { opacity: 1; }
     }
     @media (min-height: 700px) { body { align-items: center; } }
 
@@ -101,6 +121,7 @@
       margin-bottom: 1.5rem;
       min-height: 1.2em;
       letter-spacing: 0.02em;
+      font-variant-numeric: tabular-nums;
       transition: opacity 0.3s ease;
     }
     .status.fade-out {
@@ -159,7 +180,7 @@
       margin-top: 0.2rem; margin-bottom: 1.8rem; flex-wrap: wrap;
     }
     .color-btn {
-      padding: 0.38rem 0.8rem;
+      padding: 0.55rem 0.8rem;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: transparent;
@@ -306,7 +327,7 @@
     /* Presets */
     .presets { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
     .preset-btn {
-      padding: 0.38rem 0.75rem;
+      padding: 0.55rem 0.85rem;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: transparent;
@@ -350,7 +371,7 @@
     /* Timer */
     .timer-row { display: flex; gap: 0.4rem; justify-content: center; }
     .timer-btn {
-      padding: 0.38rem 0.8rem;
+      padding: 0.55rem 0.9rem;
       border-radius: 999px;
       border: 1px solid var(--border);
       background: transparent;
@@ -367,19 +388,6 @@
       color: var(--text-bright);
       background: var(--accent-glow);
       transform: scale(1.04);
-    }
-    .timer-display {
-      color: var(--accent);
-      font-size: 0.8rem;
-      font-weight: 400;
-      font-variant-numeric: tabular-nums;
-      margin-top: 0.6rem;
-      min-height: 1.2em;
-      text-align: center;
-      transition: opacity 0.3s ease;
-    }
-    .timer-display.fade-out {
-      opacity: 0;
     }
 
     /* Utility buttons — fixed top-left */
@@ -615,7 +623,6 @@
       <button class="timer-btn" data-min="60">1h</button>
       <button class="timer-btn" data-min="120">2h</button>
     </div>
-    <div class="timer-display" id="timerDisplay"></div>
 
     <!-- Utility buttons -->
     <div class="utility-row">
@@ -699,7 +706,7 @@
   <audio id="audioA" playsinline preload="auto" loop></audio>
   <audio id="audioB" playsinline preload="auto" loop></audio>
 
-  <script src="state.js?v=13"></script>
-  <script src="app.js?v=13"></script>
+  <script src="state.js?v=17"></script>
+  <script src="app.js?v=17"></script>
 </body>
 </html>

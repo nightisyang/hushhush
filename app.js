@@ -36,7 +36,6 @@ const lowCutValEl    = document.getElementById("lowCutVal");
 const highCutValEl   = document.getElementById("highCutVal");
 const modValEl       = document.getElementById("modVal");
 const modSpeedValEl  = document.getElementById("modSpeedVal");
-const timerDisplayEl = document.getElementById("timerDisplay");
 const colorBtns      = document.querySelectorAll(".color-btn");
 const timerBtns      = document.querySelectorAll(".timer-btn");
 const hasMediaSession = 'mediaSession' in navigator;
@@ -353,6 +352,7 @@ function updatePlayUI(state) {
   loadIcon.style.display  = state === "loading" ? "block" : "none";
   playBtn.classList.toggle("active", state === "playing");
   playBtn.classList.toggle("loading", state === "loading");
+  document.body.classList.toggle("playing", state === "playing");
 }
 
 var statusTimer = null;
@@ -786,41 +786,49 @@ dialogOverlay.addEventListener("click", (e) => {
 function clearTimer() {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   timerEnd = null;
-  if (timerDisplayEl.textContent) {
-    timerDisplayEl.classList.add('fade-out');
-    setTimeout(() => { timerDisplayEl.textContent = ""; timerDisplayEl.classList.remove('fade-out'); }, 300);
-  }
   timerBtns.forEach(b => b.classList.toggle("active", b.dataset.min === "0"));
+  // Restore "Playing" status if still playing
+  if (machine.phase === 'playing' || machine.phase === 'regenerating') {
+    setStatus('Playing');
+  }
 }
 
 function setTimer(minutes) {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   timerEnd = null;
-  timerDisplayEl.textContent = "";
-  timerDisplayEl.classList.remove('fade-out');
   timerBtns.forEach(b => b.classList.toggle("active", b.dataset.min === "0"));
-  if (minutes <= 0) return;
+  if (minutes <= 0) {
+    if (machine.phase === 'playing' || machine.phase === 'regenerating') setStatus('Playing');
+    return;
+  }
   if (machine.phase === 'idle') return;
 
   timerBtns.forEach(b => b.classList.toggle("active", parseInt(b.dataset.min) === minutes));
 
   timerEnd = Date.now() + minutes * 60 * 1000;
-  updateTimerDisplay();
+  updateTimerDisplay(true);
   timerInterval = setInterval(() => {
     if (Date.now() >= timerEnd) {
       dispatch('STOP');
       return;
     }
-    updateTimerDisplay();
+    updateTimerDisplay(false);
   }, 1000);
 }
 
-function updateTimerDisplay() {
+function updateTimerDisplay(fade) {
   if (!timerEnd) return;
   const left = Math.max(0, timerEnd - Date.now());
   const m = Math.floor(left / 60000);
   const s = Math.floor((left % 60000) / 1000);
-  timerDisplayEl.textContent = m + ":" + String(s).padStart(2, "0") + " remaining";
+  const text = "Playing \u00b7 " + m + ":" + String(s).padStart(2, "0");
+  if (fade) {
+    setStatus(text);
+  } else {
+    // Direct update — no fade for every-second ticks
+    statusTarget = text;
+    statusEl.textContent = text;
+  }
 }
 
 document.getElementById("timerRow").addEventListener("click", (e) => {
