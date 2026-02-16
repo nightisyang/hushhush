@@ -5,6 +5,8 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>HushHush</title>
   <meta name="theme-color" content="#0f1219">
+  <link rel="icon" type="image/png" sizes="96x96" href="icon-96.png">
+  <link rel="apple-touch-icon" href="icon-256.png">
   <meta name="format-detection" content="telephone=no">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -405,8 +407,10 @@
       align-items: center; gap: 1rem;
     }
     .qr-wrap svg {
-      width: 200px; height: 200px;
-      border-radius: 12px;
+      width: 160px; height: 160px;
+      padding: 20px;
+      background: #fff;
+      border-radius: 16px;
       box-shadow: 0 4px 20px rgba(0,0,0,0.2);
     }
     .qr-url {
@@ -469,6 +473,12 @@
       <svg id="loadIcon" viewBox="0 0 24 24" style="display:none"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="42 14" stroke-linecap="round"><animateTransform attributeName="transform" type="rotate" from="0 12 12" to="360 12 12" dur="0.8s" repeatCount="indefinite"/></circle></svg>
     </button>
 
+    <div class="presets" id="presets"></div>
+    <div class="preset-actions">
+      <button class="action-btn" id="savePreset">+ Save current</button>
+    </div>
+
+    <div class="section-label">Color</div>
     <div class="colors" id="colors">
       <button class="color-btn active" data-color="white">White</button>
       <button class="color-btn" data-color="pink">Pink</button>
@@ -496,13 +506,6 @@
     <div class="control">
       <label><span>Mod Speed</span><span id="modSpeedVal">Slow</span></label>
       <input type="range" id="modSpeed" min="1" max="100" value="15">
-    </div>
-
-    <!-- Presets -->
-    <div class="section-label">Presets</div>
-    <div class="presets" id="presets"></div>
-    <div class="preset-actions">
-      <button class="action-btn" id="savePreset">+ Save current</button>
     </div>
 
     <!-- Timer -->
@@ -563,26 +566,28 @@
     <div class="dialog" style="width: 320px;">
       <h3>Add to Home Screen</h3>
       <div class="install-steps">
-        <div class="platform" id="iosSteps">
+        <div class="platform" id="chromeSteps">
           <h4>
-            <svg class="step-icon" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-            iPhone / iPad
-          </h4>
-          <ol>
-            <li>Open in <strong>Safari</strong></li>
-            <li>Tap <svg class="step-icon" viewBox="0 0 24 24"><path d="M16 5l-1.42 1.42-1.59-1.59V16h-2V4.83L9.42 6.42 8 5l4-4 4 4zm4 5v11c0 1.1-.9 2-2 2H6c-1.11 0-2-.9-2-2V10c0-1.11.89-2 2-2h3v2H6v11h12V10h-3V8h3c1.1 0 2 .89 2 2z"/></svg> <strong>Share</strong></li>
-            <li>Scroll down, tap <strong>"Add to Home Screen"</strong></li>
-          </ol>
-        </div>
-        <div class="platform" id="androidSteps">
-          <h4>
-            <svg class="step-icon" viewBox="0 0 24 24"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V7H6v11zM3.5 7C2.67 7 2 7.67 2 8.5v7c0 .83.67 1.5 1.5 1.5S5 16.33 5 15.5v-7C5 7.67 4.33 7 3.5 7zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85.55 12.95.25 12 .25s-1.85.3-2.64.88L7.88.65c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 3.79 6 5.55 6 7h12c0-1.45-.97-3.21-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/></svg>
-            Android
+            <svg class="step-icon" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 3a5 5 0 0 1 4.7 3.25H12a5 5 0 0 0-4.33 2.5L5.46 7.2A7.97 7.97 0 0 1 12 5zm-7.9 7.5l2.2-3.81A5 5 0 0 0 12 17l-2.21 3.83A8 8 0 0 1 4.1 12.5zM12 19a5 5 0 0 1-1.44-.22l2.2-3.81a5 5 0 0 0 4.33-2.5l2.22 3.83A7.97 7.97 0 0 1 12 19z"/></svg>
+            Chrome (Recommended)
           </h4>
           <ol>
             <li>Open in <strong>Chrome</strong></li>
             <li>Tap <svg class="step-icon" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg> <strong>Menu</strong> (top right)</li>
             <li>Tap <strong>"Add to Home Screen"</strong></li>
+            <li>Lock screen controls + artwork will work</li>
+          </ol>
+        </div>
+        <div class="platform" id="safariSteps">
+          <h4>
+            <svg class="step-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.27 15.58l-1.54-5.77 5.77 1.54-1.54 5.77L12 14.5l-1.27 3.08zM12 13a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm1.27-6.58l1.54 5.77-5.77-1.54 1.54-5.77L12 9.5l1.27-3.08z"/></svg>
+            Safari
+          </h4>
+          <ol>
+            <li>Open in <strong>Safari</strong></li>
+            <li>Tap <svg class="step-icon" viewBox="0 0 24 24"><path d="M16 5l-1.42 1.42-1.59-1.59V16h-2V4.83L9.42 6.42 8 5l4-4 4 4zm4 5v11c0 1.1-.9 2-2 2H6c-1.11 0-2-.9-2-2V10c0-1.11.89-2 2-2h3v2H6v11h12V10h-3V8h3c1.1 0 2 .89 2 2z"/></svg> <strong>Share</strong></li>
+            <li>Tap <strong>"Add to Home Screen"</strong></li>
+            <li>Controls work, but no artwork on lock screen</li>
           </ol>
         </div>
       </div>
@@ -593,9 +598,10 @@
   </div>
 
   <!-- Two audio elements for gapless double-buffered looping -->
-  <audio id="audioA" playsinline preload="auto"></audio>
-  <audio id="audioB" playsinline preload="auto"></audio>
+  <audio id="audioA" playsinline preload="auto" loop></audio>
+  <audio id="audioB" playsinline preload="auto" loop></audio>
 
-  <script src="app.js?v=3"></script>
+  <script src="state.js?v=6"></script>
+  <script src="app.js?v=6"></script>
 </body>
 </html>

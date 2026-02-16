@@ -30,13 +30,26 @@ const highCutSlider  = document.getElementById("highCut");
 const modSlider      = document.getElementById("modulation");
 const modSpeedSlider = document.getElementById("modSpeed");
 
+// Cache frequently-queried DOM elements
+const volValEl       = document.getElementById("volVal");
+const lowCutValEl    = document.getElementById("lowCutVal");
+const highCutValEl   = document.getElementById("highCutVal");
+const modValEl       = document.getElementById("modVal");
+const modSpeedValEl  = document.getElementById("modSpeedVal");
+const timerDisplayEl = document.getElementById("timerDisplay");
+const colorBtns      = document.querySelectorAll(".color-btn");
+const timerBtns      = document.querySelectorAll(".timer-btn");
+const hasMediaSession = 'mediaSession' in navigator;
+const hasPositionState = hasMediaSession && 'setPositionState' in navigator.mediaSession;
+
 // ===== State =====
-let playing = false;
-let generating = false;
-let dirty = false;            // settings changed during generation
+let machine = HushState.create();
+let genToken = 0;
+let pendingBlob = null;
+let pendingSettings = null;
+let pendingError = null;
 let activeAudio = audioA;
 let nextAudio = audioB;
-let crossfadeScheduled = false;
 let activePreset = null;
 let timerInterval = null;
 let timerEnd = null;
@@ -44,17 +57,19 @@ let currentBlobA = null;
 let currentBlobB = null;
 let loadedSettingsKey = null;
 let filterTimeout = null;
+let activeColor = "white";
 
 // ===== Blob Cache =====
 const blobCache = new Map();
 
 function settingsKey(s) {
-  return [s.color, s.lowCut, s.highCut, s.mod, s.modSpeed].join("|");
+  return `${s.color}|${s.lowCut}|${s.highCut}|${s.mod}|${s.modSpeed}`;
 }
 
 // ===== Noise Sample Generation =====
-function generateSamples(color, length) {
-  const out = new Float32Array(length);
+// Writes directly into a provided Float32Array to avoid allocation + copy
+function generateSamples(color, out) {
+  const length = out.length;
 
   switch (color) {
     case "white":
@@ -109,22 +124,22 @@ function generateSamples(color, length) {
     }
   }
 
-  return out;
 }
 
 // ===== WAV Encoding =====
-function writeString(view, offset, str) {
-  for (let i = 0; i < str.length; i++) view.setUint8(offset + i, str.charCodeAt(i));
-}
-
-function encodeWAV(samples) {
-  const buf = new ArrayBuffer(44 + samples.length * 2);
-  const v = new DataView(buf);
-
-  writeString(v, 0, "RIFF");
-  v.setUint32(4, 36 + samples.length * 2, true);
-  writeString(v, 8, "WAVE");
-  writeString(v, 12, "fmt ");
+// Pre-compute the static 44-byte WAV header (constant for all generations)
+const WAV_SAMPLES = SAMPLE_RATE * DURATION;
+const WAV_HEADER = new Uint8Array(44);
+{
+  const v = new DataView(WAV_HEADER.buffer);
+  const hdr = WAV_HEADER;
+  // "RIFF"
+  hdr[0] = 82; hdr[1] = 73; hdr[2] = 70; hdr[3] = 70;
+  v.setUint32(4, 36 + WAV_SAMPLES * 2, true);
+  // "WAVE"
+  hdr[8] = 87; hdr[9] = 65; hdr[10] = 86; hdr[11] = 69;
+  // "fmt "
+  hdr[12] = 102; hdr[13] = 109; hdr[14] = 116; hdr[15] = 32;
   v.setUint32(16, 16, true);
   v.setUint16(20, 1, true);
   v.setUint16(22, 1, true);
@@ -132,12 +147,20 @@ function encodeWAV(samples) {
   v.setUint32(28, SAMPLE_RATE * 2, true);
   v.setUint16(32, 2, true);
   v.setUint16(34, 16, true);
-  writeString(v, 36, "data");
-  v.setUint32(40, samples.length * 2, true);
+  // "data"
+  hdr[36] = 100; hdr[37] = 97; hdr[38] = 116; hdr[39] = 97;
+  v.setUint32(40, WAV_SAMPLES * 2, true);
+}
 
-  for (let i = 0; i < samples.length; i++) {
-    const s = Math.max(-1, Math.min(1, samples[i]));
-    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7FFF, true);
+function encodeWAV(samples) {
+  const len = samples.length;
+  const buf = new ArrayBuffer(44 + len * 2);
+  new Uint8Array(buf, 0, 44).set(WAV_HEADER);
+
+  const pcm = new Int16Array(buf, 44);
+  for (let i = 0; i < len; i++) {
+    const s = samples[i];
+    pcm[i] = s > 0 ? (s < 1 ? s * 0x7FFF : 0x7FFF) : (s > -1 ? s * 0x8000 : -0x8000);
   }
 
   return new Blob([buf], { type: "audio/wav" });
@@ -149,11 +172,9 @@ async function generateNoise(settings) {
   if (blobCache.has(key)) return blobCache.get(key);
 
   const totalSamples = SAMPLE_RATE * DURATION;
-  const raw = generateSamples(settings.color, totalSamples);
-
   const offCtx = new OfflineCtx(1, totalSamples, SAMPLE_RATE);
   const buffer = offCtx.createBuffer(1, totalSamples, SAMPLE_RATE);
-  buffer.getChannelData(0).set(raw);
+  generateSamples(settings.color, buffer.getChannelData(0));
 
   const src = offCtx.createBufferSource();
   src.buffer = buffer;
@@ -222,7 +243,7 @@ async function generateNoise(settings) {
 // ===== Settings =====
 function getSettings() {
   return {
-    color:    document.querySelector(".color-btn.active")?.dataset.color || "white",
+    color:    activeColor,
     lowCut:   parseInt(lowCutSlider.value),
     highCut:  parseInt(highCutSlider.value),
     mod:      parseInt(modSlider.value),
@@ -258,33 +279,37 @@ function resetBuffers() {
   audioA.currentTime = 0;
   audioB.currentTime = 0;
   audioB.pause();
-  crossfadeScheduled = false;
 }
 
 function waitForReady(el) {
   return new Promise((resolve, reject) => {
-    el.addEventListener("canplaythrough", resolve, { once: true });
-    el.addEventListener("error", reject, { once: true });
+    function onReady() { el.removeEventListener("error", onError); resolve(); }
+    function onError(e) { el.removeEventListener("canplaythrough", onReady); reject(e); }
+    el.addEventListener("canplaythrough", onReady, { once: true });
+    el.addEventListener("error", onError, { once: true });
   });
 }
 
 // ===== Crossfade Engine =====
 function handleTimeUpdate(e) {
   const audio = e.target;
-  if (audio !== activeAudio || !playing) return;
+  if (audio !== activeAudio || machine.phase !== 'playing') return;
 
   const timeLeft = audio.duration - audio.currentTime;
-  if (timeLeft <= FADE && !crossfadeScheduled) {
-    crossfadeScheduled = true;
-
+  if (timeLeft <= FADE) {
     nextAudio.currentTime = 0;
     nextAudio.volume = getVolume();
     nextAudio.play().catch(() => {});
 
-    const temp = activeAudio;
+    const old = activeAudio;
     activeAudio = nextAudio;
-    nextAudio = temp;
-    crossfadeScheduled = false;
+    nextAudio = old;
+
+    // Mute old audio after overlap instead of pausing (pause triggers lock screen "paused")
+    setTimeout(() => { old.volume = 0; }, timeLeft * 1000);
+
+    // Re-assert media session after crossfade so lock screen stays attached
+    updateMediaSession(getSettings());
   }
 }
 
@@ -297,6 +322,18 @@ audioB.addEventListener("timeupdate", handleTimeUpdate);
 audioA.addEventListener("ended", handleEnded);
 audioB.addEventListener("ended", handleEnded);
 
+// Bidirectional MediaSession sync: re-assert "playing" on any audio play/pause
+// so the lock screen never flickers to "paused" during crossfade
+function syncPlaybackState() {
+  if (machine.phase === 'playing' && hasMediaSession) {
+    navigator.mediaSession.playbackState = 'playing';
+  }
+}
+audioA.addEventListener("play", syncPlaybackState);
+audioB.addEventListener("play", syncPlaybackState);
+audioA.addEventListener("pause", syncPlaybackState);
+audioB.addEventListener("pause", syncPlaybackState);
+
 // ===== UI State =====
 function updatePlayUI(state) {
   // state: "stopped" | "loading" | "playing"
@@ -307,90 +344,114 @@ function updatePlayUI(state) {
   playBtn.classList.toggle("loading", state === "loading");
 }
 
-// ===== Playback Control =====
-async function loadAndPlay() {
-  // If already generating, mark dirty so current run restarts with latest settings
-  if (generating) {
-    dirty = true;
-    audioA.pause();
-    audioB.pause();
-    return;
-  }
-
-  const settings = getSettings();
-  const key = settingsKey(settings);
-
-  // Fast resume: same settings already loaded
-  if (key === loadedSettingsKey && currentBlobA) {
-    resetBuffers();
-    activeAudio.volume = getVolume();
-    await activeAudio.play();
-    playing = true;
-    updatePlayUI("playing");
-    updateMediaSession(settings);
-    return;
-  }
-
-  // Stop current audio, show loader
-  audioA.pause();
-  audioB.pause();
-  generating = true;
-  updatePlayUI("loading");
-
-  do {
-    dirty = false;
-    const s = getSettings();
-    statusEl.textContent = "Generating " + s.color + " noise\u2026";
-
-    try {
-      const blob = await generateNoise(s);
-      if (dirty) continue;
-
-      loadBlob(blob);
-      await waitForReady(audioA);
-      if (dirty) continue;
-
-      resetBuffers();
-      activeAudio.volume = getVolume();
-      await activeAudio.play();
-      playing = true;
-      loadedSettingsKey = settingsKey(s);
-      statusEl.textContent = "Playing";
-      updateMediaSession(s);
-    } catch (err) {
-      statusEl.textContent = "Error: " + err.message;
-      playing = false;
-      break;
-    }
-  } while (dirty);
-
-  generating = false;
-  updatePlayUI(playing ? "playing" : "stopped");
+// ===== Playback Control (State Machine) =====
+function dispatch(event) {
+  const result = HushState.send(machine, event);
+  machine = result.machine;
+  executeActions(result.actions);
 }
 
-function stopPlaying() {
-  audioA.pause();
-  audioB.pause();
-  playing = false;
-  crossfadeScheduled = false;
-  statusEl.textContent = "";
-  clearTimer();
-  if ("mediaSession" in navigator) {
-    navigator.mediaSession.playbackState = "paused";
+function executeActions(actions) {
+  for (const action of actions) {
+    switch (action) {
+      case 'STOP_AUDIO':
+        audioA.pause();
+        audioB.pause();
+        break;
+      case 'UI_LOADING':
+        updatePlayUI('loading');
+        break;
+      case 'UI_PLAYING':
+        updatePlayUI('playing');
+        statusEl.textContent = 'Playing';
+        updateMediaSession(pendingSettings || getSettings());
+        break;
+      case 'UI_STOPPED':
+        updatePlayUI('stopped');
+        statusEl.textContent = '';
+        clearTimer();
+        if (hasMediaSession) navigator.mediaSession.playbackState = 'paused';
+        break;
+      case 'GENERATE':
+        executeGeneration();
+        break;
+      case 'LOAD_AUDIO':
+        executeLoadAudio();
+        break;
+      case 'PLAY_AUDIO':
+        resetBuffers();
+        activeAudio.volume = getVolume();
+        activeAudio.play().then(() => {
+          if (machine.phase === 'playing') updateMediaSession(pendingSettings || getSettings());
+        }).catch(() => {});
+        loadedSettingsKey = settingsKey(pendingSettings);
+        break;
+      case 'RESUME_AUDIO':
+        resetBuffers();
+        activeAudio.volume = getVolume();
+        activeAudio.play().then(() => {
+          if (machine.phase === 'playing') updateMediaSession(getSettings());
+        }).catch(() => {});
+        break;
+      case 'SHOW_ERROR':
+        statusEl.textContent = 'Error: ' + (pendingError ? pendingError.message : 'Unknown');
+        break;
+    }
   }
-  updatePlayUI("stopped");
+}
+
+async function executeGeneration() {
+  const token = ++genToken;
+  const settings = getSettings();
+  pendingSettings = settings;
+  statusEl.textContent = 'Generating ' + settings.color + ' noise\u2026';
+
+  try {
+    const blob = await generateNoise(settings);
+    if (token !== genToken) return;
+    pendingBlob = blob;
+    dispatch('GEN_COMPLETE');
+  } catch (err) {
+    if (token !== genToken) return;
+    pendingError = err;
+    dispatch('ERROR');
+  }
+}
+
+async function executeLoadAudio() {
+  const token = genToken;
+  loadBlob(pendingBlob);
+
+  try {
+    await waitForReady(audioA);
+    if (token !== genToken) return;
+    dispatch('AUDIO_READY');
+  } catch (err) {
+    if (token !== genToken) return;
+    pendingError = err;
+    dispatch('ERROR');
+  }
 }
 
 playBtn.addEventListener("click", () => {
-  if (playing || generating) stopPlaying();
-  else loadAndPlay();
+  if (machine.phase !== 'idle') {
+    dispatch('STOP');
+  } else {
+    const key = settingsKey(getSettings());
+    dispatch(key === loadedSettingsKey && currentBlobA ? 'PLAY_CACHED' : 'PLAY');
+  }
 });
 
 // ===== Media Session =====
-if ("mediaSession" in navigator) {
-  navigator.mediaSession.setActionHandler("play", () => { if (!playing) loadAndPlay(); });
-  navigator.mediaSession.setActionHandler("pause", () => { if (playing) stopPlaying(); });
-  navigator.mediaSession.setActionHandler("stop", () => { if (playing) stopPlaying(); });
+if (hasMediaSession) {
+  navigator.mediaSession.setActionHandler("play", () => {
+    if (machine.phase === 'idle') {
+      const key = settingsKey(getSettings());
+      dispatch(key === loadedSettingsKey && currentBlobA ? 'PLAY_CACHED' : 'PLAY');
+    }
+  });
+  navigator.mediaSession.setActionHandler("pause", () => { if (machine.phase !== 'idle') dispatch('STOP'); });
+  navigator.mediaSession.setActionHandler("stop", () => { if (machine.phase !== 'idle') dispatch('STOP'); });
   navigator.mediaSession.setActionHandler("seekbackward", null);
   navigator.mediaSession.setActionHandler("seekforward", null);
   navigator.mediaSession.setActionHandler("seekto", null);
@@ -398,17 +459,35 @@ if ("mediaSession" in navigator) {
   navigator.mediaSession.setActionHandler("nexttrack", null);
 }
 
+// Lock screen artwork — absolute HTTPS URLs required for iOS Now Playing
+const sessionArtwork = [
+  { src: new URL('icon-96.png', location.href).href,  sizes: '96x96',   type: 'image/png' },
+  { src: new URL('icon-256.png', location.href).href, sizes: '256x256', type: 'image/png' },
+  { src: new URL('icon-512.png', location.href).href, sizes: '512x512', type: 'image/png' },
+];
+
+function getMediaTitle(settings) {
+  if (activePreset) return activePreset;
+  return settings.color.charAt(0).toUpperCase() + settings.color.slice(1) + " Noise";
+}
+
 function updateMediaSession(settings) {
-  if (!("mediaSession" in navigator)) return;
-  const label = settings.color.charAt(0).toUpperCase() + settings.color.slice(1);
+  if (!hasMediaSession) return;
   navigator.mediaSession.metadata = new MediaMetadata({
-    title: label + " Noise",
+    title: getMediaTitle(settings),
     artist: "HushHush",
     album: "Baby Sleep",
+    artwork: sessionArtwork,
   });
   navigator.mediaSession.playbackState = "playing";
-  if ("setPositionState" in navigator.mediaSession) {
-    try { navigator.mediaSession.setPositionState({}); } catch (e) {}
+  if (hasPositionState) {
+    try {
+      navigator.mediaSession.setPositionState({
+        duration: DURATION,
+        playbackRate: 1,
+        position: activeAudio.currentTime || 0,
+      });
+    } catch (e) {}
   }
 }
 
@@ -416,56 +495,64 @@ function updateMediaSession(settings) {
 document.getElementById("colors").addEventListener("click", (e) => {
   const btn = e.target.closest(".color-btn");
   if (!btn) return;
-  document.querySelectorAll(".color-btn").forEach(b => b.classList.remove("active"));
+  colorBtns.forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
+  activeColor = btn.dataset.color;
   settingsChanged();
 });
 
 // ===== UI: Sliders =====
 volSlider.addEventListener("input", () => {
-  document.getElementById("volVal").textContent = volSlider.value + "%";
+  volValEl.textContent = volSlider.value + "%";
   const vol = getVolume();
   audioA.volume = vol;
   audioB.volume = vol;
+  saveSettings();
 });
 
 lowCutSlider.addEventListener("input", () => {
   const v = parseInt(lowCutSlider.value);
-  document.getElementById("lowCutVal").textContent = v === 0 ? "Off" : v + " Hz";
+  lowCutValEl.textContent = v === 0 ? "Off" : v + " Hz";
 });
 
 highCutSlider.addEventListener("input", () => {
   const v = parseInt(highCutSlider.value);
-  document.getElementById("highCutVal").textContent = v >= 20000 ? "Off" : v >= 1000 ? (v / 1000).toFixed(1) + " kHz" : v + " Hz";
+  highCutValEl.textContent = v >= 20000 ? "Off" : v >= 1000 ? (v / 1000).toFixed(1) + " kHz" : v + " Hz";
 });
 
+const MOD_LABELS = ["Slow", "Medium", "Fast", "Very fast"];
 modSlider.addEventListener("input", () => {
   const v = parseInt(modSlider.value);
-  document.getElementById("modVal").textContent = v === 0 ? "Off" : v + "%";
+  modValEl.textContent = v === 0 ? "Off" : v + "%";
 });
 
 modSpeedSlider.addEventListener("input", () => {
-  const v = parseInt(modSpeedSlider.value);
-  const labels = ["Slow", "Medium", "Fast", "Very fast"];
-  document.getElementById("modSpeedVal").textContent = labels[Math.min(Math.floor(v / 25), 3)];
+  modSpeedValEl.textContent = MOD_LABELS[Math.min(parseInt(modSpeedSlider.value) / 25 | 0, 3)];
 });
+
+function deactivatePreset() {
+  if (!activePreset) return;
+  activePreset = null;
+  const active = presetsEl.querySelector(".preset-btn.active");
+  if (active) active.classList.remove("active");
+}
 
 // Shared handler: any setting change invalidates + regenerates if playing
 function settingsChanged() {
-  activePreset = null;
+  deactivatePreset();
   loadedSettingsKey = null;
-  renderPresets();
-  if (playing || generating) loadAndPlay();
+  saveSettings();
+  if (machine.phase !== 'idle') dispatch('SETTINGS_CHANGED');
 }
 
 // Filters/mod use "change" event (fires on release) with debounce
 function onFilterChange() {
-  activePreset = null;
+  deactivatePreset();
   loadedSettingsKey = null;
-  renderPresets();
-  if (!playing && !generating) return;
+  saveSettings();
+  if (machine.phase === 'idle') return;
   clearTimeout(filterTimeout);
-  filterTimeout = setTimeout(() => loadAndPlay(), 600);
+  filterTimeout = setTimeout(() => dispatch('SETTINGS_CHANGED'), 600);
 }
 
 lowCutSlider.addEventListener("change", onFilterChange);
@@ -483,55 +570,71 @@ function saveCustomPresetsToStorage(list) {
   localStorage.setItem("hushhush_presets", JSON.stringify(list));
 }
 
+function updateSliderLabels(p) {
+  lowCutValEl.textContent = p.lowCut === 0 ? "Off" : p.lowCut + " Hz";
+  highCutValEl.textContent = p.highCut >= 20000 ? "Off" : p.highCut >= 1000 ? (p.highCut / 1000).toFixed(1) + " kHz" : p.highCut + " Hz";
+  modValEl.textContent = p.mod === 0 ? "Off" : p.mod + "%";
+  modSpeedValEl.textContent = MOD_LABELS[Math.min(p.modSpeed / 25 | 0, 3)];
+}
+
 function applyPreset(preset) {
-  document.querySelectorAll(".color-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.color === preset.color);
-  });
+  colorBtns.forEach(b => b.classList.toggle("active", b.dataset.color === preset.color));
+  activeColor = preset.color;
 
   lowCutSlider.value = preset.lowCut;
-  lowCutSlider.dispatchEvent(new Event("input"));
   highCutSlider.value = preset.highCut;
-  highCutSlider.dispatchEvent(new Event("input"));
   modSlider.value = preset.mod;
-  modSlider.dispatchEvent(new Event("input"));
   modSpeedSlider.value = preset.modSpeed;
-  modSpeedSlider.dispatchEvent(new Event("input"));
+  updateSliderLabels(preset);
 
   activePreset = preset.name;
   loadedSettingsKey = null;
   renderPresets();
-  if (playing || generating) loadAndPlay();
+  saveSettings();
+  if (machine.phase !== 'idle') dispatch('SETTINGS_CHANGED');
 }
 
-function renderPresets() {
-  presetsEl.innerHTML = "";
-  const all = [...BUILTIN_PRESETS, ...getCustomPresets()];
+let allPresets = [];
 
-  all.forEach(p => {
+function renderPresets() {
+  allPresets = [...BUILTIN_PRESETS, ...getCustomPresets()];
+  const frag = document.createDocumentFragment();
+
+  for (let i = 0; i < allPresets.length; i++) {
+    const p = allPresets[i];
     const btn = document.createElement("button");
     btn.className = "preset-btn" + (p.custom ? " custom" : "") + (activePreset === p.name ? " active" : "");
     btn.textContent = p.name;
+    btn.dataset.idx = i;
     if (p.custom) {
       const x = document.createElement("span");
       x.className = "delete-x";
       x.textContent = "\u00d7";
       btn.appendChild(x);
     }
+    frag.appendChild(btn);
+  }
 
-    btn.addEventListener("click", (e) => {
-      if (e.target.classList.contains("delete-x")) {
-        const customs = getCustomPresets().filter(c => c.name !== p.name);
-        saveCustomPresetsToStorage(customs);
-        if (activePreset === p.name) activePreset = null;
-        renderPresets();
-        return;
-      }
-      applyPreset(p);
-    });
-
-    presetsEl.appendChild(btn);
-  });
+  presetsEl.textContent = "";
+  presetsEl.appendChild(frag);
 }
+
+// Event delegation — single listener for all preset buttons
+presetsEl.addEventListener("click", (e) => {
+  const btn = e.target.closest(".preset-btn");
+  if (!btn) return;
+  const p = allPresets[btn.dataset.idx];
+  if (!p) return;
+
+  if (e.target.classList.contains("delete-x")) {
+    const customs = getCustomPresets().filter(c => c.name !== p.name);
+    saveCustomPresetsToStorage(customs);
+    if (activePreset === p.name) activePreset = null;
+    renderPresets();
+    return;
+  }
+  applyPreset(p);
+});
 
 // ===== UI: Save Preset Dialog =====
 const dialogOverlay = document.getElementById("dialogOverlay");
@@ -581,25 +684,21 @@ dialogOverlay.addEventListener("click", (e) => {
 function clearTimer() {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   timerEnd = null;
-  document.getElementById("timerDisplay").textContent = "";
-  document.querySelectorAll(".timer-btn").forEach(b => {
-    b.classList.toggle("active", b.dataset.min === "0");
-  });
+  timerDisplayEl.textContent = "";
+  timerBtns.forEach(b => b.classList.toggle("active", b.dataset.min === "0"));
 }
 
 function setTimer(minutes) {
   clearTimer();
   if (minutes <= 0) return;
 
-  document.querySelectorAll(".timer-btn").forEach(b => {
-    b.classList.toggle("active", parseInt(b.dataset.min) === minutes);
-  });
+  timerBtns.forEach(b => b.classList.toggle("active", parseInt(b.dataset.min) === minutes));
 
   timerEnd = Date.now() + minutes * 60 * 1000;
   updateTimerDisplay();
   timerInterval = setInterval(() => {
     if (Date.now() >= timerEnd) {
-      stopPlaying();
+      dispatch('STOP');
       return;
     }
     updateTimerDisplay();
@@ -611,7 +710,7 @@ function updateTimerDisplay() {
   const left = Math.max(0, timerEnd - Date.now());
   const m = Math.floor(left / 60000);
   const s = Math.floor((left % 60000) / 1000);
-  document.getElementById("timerDisplay").textContent = m + ":" + String(s).padStart(2, "0") + " remaining";
+  timerDisplayEl.textContent = m + ":" + String(s).padStart(2, "0") + " remaining";
 }
 
 document.getElementById("timerRow").addEventListener("click", (e) => {
@@ -642,12 +741,10 @@ qrOverlay.addEventListener("click", (e) => {
 });
 
 document.getElementById("installBtn").addEventListener("click", () => {
-  // Detect platform and highlight relevant section
-  const ua = navigator.userAgent;
-  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
-  const isAndroid = /Android/.test(ua);
-  document.getElementById("iosSteps").classList.toggle("highlight", isIOS || !isAndroid);
-  document.getElementById("androidSteps").classList.toggle("highlight", isAndroid);
+  // Highlight the browser the user is currently using
+  const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
+  document.getElementById("chromeSteps")?.classList.toggle("highlight", !isSafari);
+  document.getElementById("safariSteps")?.classList.toggle("highlight", isSafari);
   installOverlay.classList.add("open");
 });
 
@@ -659,6 +756,52 @@ installOverlay.addEventListener("click", (e) => {
   if (e.target === installOverlay) installOverlay.classList.remove("open");
 });
 
+// ===== Settings Persistence =====
+let saveTimeout = null;
+function saveSettings() {
+  if (saveTimeout) return;
+  saveTimeout = setTimeout(() => {
+    saveTimeout = null;
+    try {
+      const s = getSettings();
+      s.volume = parseInt(volSlider.value);
+      s.preset = activePreset || null;
+      localStorage.setItem("hushhush_settings", JSON.stringify(s));
+    } catch (e) {}
+  }, 300);
+}
+
+function restoreSettings() {
+  try {
+    const s = JSON.parse(localStorage.getItem("hushhush_settings"));
+    if (!s) return;
+
+    // Color
+    if (s.color) {
+      activeColor = s.color;
+      colorBtns.forEach(b => b.classList.toggle("active", b.dataset.color === s.color));
+    }
+
+    // Sliders
+    if (s.volume != null) { volSlider.value = s.volume; volValEl.textContent = s.volume + "%"; }
+    if (s.lowCut != null) lowCutSlider.value = s.lowCut;
+    if (s.highCut != null) highCutSlider.value = s.highCut;
+    if (s.mod != null) modSlider.value = s.mod;
+    if (s.modSpeed != null) modSpeedSlider.value = s.modSpeed;
+    updateSliderLabels({
+      lowCut: parseInt(lowCutSlider.value),
+      highCut: parseInt(highCutSlider.value),
+      mod: parseInt(modSlider.value),
+      modSpeed: parseInt(modSpeedSlider.value),
+    });
+
+    // Restore active preset
+    if (s.preset) activePreset = s.preset;
+  } catch (e) {}
+}
+
 // ===== Init =====
+restoreSettings();
 renderPresets();
 statusEl.textContent = "Ready";
+
