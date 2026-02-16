@@ -4,15 +4,37 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <title>HushHush</title>
-  <meta name="theme-color" content="#1a1a2e">
+  <meta name="theme-color" content="#0f1219">
   <meta name="format-detection" content="telephone=no">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
   <style>
+    :root {
+      --bg: #0f1219;
+      --surface: #161c28;
+      --surface-up: #1c2333;
+      --border: #242d3e;
+      --border-light: #2e3a50;
+      --text-dim: #4e5872;
+      --text-muted: #7a849a;
+      --text: #b0b8c8;
+      --text-bright: #dce0ea;
+      --accent: #91b8b0;
+      --accent-bright: #aed0c8;
+      --accent-glow: rgba(145, 184, 176, 0.12);
+      --accent-glow-strong: rgba(145, 184, 176, 0.25);
+      --danger: #c47070;
+    }
+
     * { margin: 0; padding: 0; box-sizing: border-box; }
 
     body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
-      background: #1a1a2e;
-      color: #e0e0e0;
+      font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-weight: 300;
+      background: var(--bg);
+      background-image: radial-gradient(ellipse at 50% 25%, #151c2c 0%, var(--bg) 70%);
+      color: var(--text);
       min-height: 100dvh;
       display: flex;
       align-items: flex-start;
@@ -23,110 +45,210 @@
       overflow-y: auto;
     }
 
-    .app { width: 100%; max-width: 440px; padding: 1.5rem 1.25rem 2.5rem; }
+    .app {
+      width: 100%; max-width: 440px;
+      padding: 2rem 1.5rem 3rem;
+    }
     @media (min-height: 700px) { body { align-items: center; } }
 
+    /* Staggered entrance */
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    .app > * {
+      animation: fadeIn 0.5s ease-out both;
+    }
+    .app > :nth-child(1) { animation-delay: 0s; }
+    .app > :nth-child(2) { animation-delay: 0.04s; }
+    .app > :nth-child(3) { animation-delay: 0.08s; }
+    .app > :nth-child(4) { animation-delay: 0.12s; }
+    .app > :nth-child(5) { animation-delay: 0.15s; }
+    .app > :nth-child(6) { animation-delay: 0.18s; }
+    .app > :nth-child(7) { animation-delay: 0.20s; }
+    .app > :nth-child(8) { animation-delay: 0.22s; }
+    .app > :nth-child(9) { animation-delay: 0.24s; }
+    .app > :nth-child(10) { animation-delay: 0.26s; }
+    .app > :nth-child(n+11) { animation-delay: 0.28s; }
+
+    /* Title */
     h1 {
-      font-size: 1.3rem;
+      font-family: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      font-size: 1.5rem;
       font-weight: 600;
       text-align: center;
-      margin-bottom: 0.5rem;
-      color: #a0a0c0;
-      letter-spacing: 0.05em;
+      margin-bottom: 0.4rem;
+      color: var(--text-bright);
+      letter-spacing: 0.06em;
     }
 
     .status {
       text-align: center;
-      font-size: 0.8rem;
-      color: #6c63ff;
-      margin-bottom: 1.2rem;
+      font-size: 0.78rem;
+      font-weight: 400;
+      color: var(--accent);
+      margin-bottom: 1.5rem;
       min-height: 1.2em;
+      letter-spacing: 0.02em;
     }
 
     /* Play button */
     .play-btn {
-      width: 88px; height: 88px;
+      position: relative;
+      width: 96px; height: 96px;
       border-radius: 50%;
-      border: 3px solid #4a4a6a;
+      border: 2px solid var(--border-light);
       background: transparent;
-      color: #e0e0e0;
+      color: var(--text-bright);
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
-      margin: 0 auto 1.8rem;
-      transition: border-color 0.2s, background 0.2s;
+      margin: 0 auto 2rem;
+      transition: border-color 0.4s, background 0.4s, box-shadow 0.4s;
     }
-    .play-btn:hover { border-color: #7a7aaa; }
-    .play-btn.active { border-color: #6c63ff; background: rgba(108, 99, 255, 0.1); }
-    .play-btn.loading { border-color: #6c63ff; animation: pulse 1.2s ease-in-out infinite; }
-    @keyframes pulse { 0%,100% { opacity: 0.5; } 50% { opacity: 1; } }
-    .play-btn svg { width: 32px; height: 32px; fill: currentColor; }
+    .play-btn::before {
+      content: '';
+      position: absolute;
+      inset: -24px;
+      border-radius: 50%;
+      background: radial-gradient(circle, var(--accent-glow-strong), transparent 70%);
+      opacity: 0;
+      transition: opacity 0.6s;
+      pointer-events: none;
+    }
+    .play-btn:hover { border-color: var(--accent); }
+    .play-btn.active {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+      box-shadow: 0 0 30px var(--accent-glow);
+    }
+    .play-btn.active::before {
+      opacity: 1;
+      animation: breathe 4s ease-in-out infinite;
+    }
+    .play-btn.loading {
+      border-color: var(--accent);
+      animation: pulse 1.4s ease-in-out infinite;
+    }
+    @keyframes pulse { 0%,100% { opacity: 0.4; } 50% { opacity: 1; } }
+    @keyframes breathe {
+      0%, 100% { transform: scale(1); opacity: 0.5; }
+      50% { transform: scale(1.2); opacity: 1; }
+    }
+    .play-btn svg { width: 30px; height: 30px; fill: currentColor; }
 
     /* Color selector */
-    .colors { display: flex; gap: 0.4rem; justify-content: center; margin-bottom: 1.6rem; flex-wrap: wrap; }
-    .color-btn {
-      padding: 0.4rem 0.8rem;
-      border-radius: 999px;
-      border: 2px solid #3a3a5a;
-      background: transparent;
-      color: #b0b0c8;
-      font-size: 0.82rem;
-      cursor: pointer;
-      transition: all 0.2s;
+    .colors {
+      display: flex; gap: 0.5rem; justify-content: center;
+      margin-bottom: 1.8rem; flex-wrap: wrap;
     }
-    .color-btn:hover { border-color: #6a6a8a; }
-    .color-btn.active { border-color: #6c63ff; color: #fff; background: rgba(108, 99, 255, 0.15); }
+    .color-btn {
+      padding: 0.4rem 0.85rem;
+      border-radius: 999px;
+      border: 1.5px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.8rem;
+      font-weight: 400;
+      cursor: pointer;
+      transition: all 0.25s;
+      display: flex; align-items: center; gap: 0.4rem;
+    }
+    .color-btn::before {
+      content: '';
+      width: 7px; height: 7px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+    .color-btn[data-color="white"]::before { background: #c8c8c8; }
+    .color-btn[data-color="pink"]::before { background: #d4849a; }
+    .color-btn[data-color="brown"]::before { background: #a07858; }
+    .color-btn[data-color="blue"]::before { background: #6898c8; }
+    .color-btn[data-color="violet"]::before { background: #9478c0; }
+    .color-btn:hover { border-color: var(--text-dim); color: var(--text); }
+    .color-btn.active {
+      border-color: var(--accent);
+      color: var(--text-bright);
+      background: var(--accent-glow);
+    }
 
     /* Sliders */
-    .control { margin-bottom: 1.2rem; }
+    .control { margin-bottom: 1.3rem; }
     .control label {
       display: flex; justify-content: space-between;
-      font-size: 0.75rem; color: #8888a8;
-      margin-bottom: 0.35rem;
-      text-transform: uppercase; letter-spacing: 0.06em;
+      font-size: 0.7rem; color: var(--text-dim);
+      font-weight: 400;
+      margin-bottom: 0.4rem;
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .control label span:last-child {
+      color: var(--text-muted);
+      font-variant-numeric: tabular-nums;
     }
     input[type="range"] {
       -webkit-appearance: none; appearance: none;
-      width: 100%; height: 6px;
-      border-radius: 3px; background: #2a2a4a; outline: none;
+      width: 100%; height: 4px;
+      border-radius: 2px;
+      background: var(--border);
+      outline: none;
       touch-action: none;
     }
     input[type="range"]::-webkit-slider-thumb {
       -webkit-appearance: none;
-      width: 28px; height: 28px;
-      border-radius: 50%; background: #6c63ff; cursor: pointer;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 0 0 4px var(--accent-glow);
+      transition: box-shadow 0.2s;
+    }
+    input[type="range"]::-webkit-slider-thumb:hover {
+      box-shadow: 0 2px 12px rgba(0,0,0,0.4), 0 0 0 6px var(--accent-glow);
     }
     input[type="range"]::-moz-range-thumb {
-      width: 28px; height: 28px;
-      border-radius: 50%; background: #6c63ff; cursor: pointer; border: none;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer; border: none;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
     }
 
     /* Section headers */
     .section-label {
-      font-size: 0.7rem; color: #6a6a8a;
-      text-transform: uppercase; letter-spacing: 0.1em;
-      margin: 1.6rem 0 0.8rem;
-      border-top: 1px solid #2a2a4a;
-      padding-top: 1rem;
+      font-size: 0.68rem;
+      font-weight: 500;
+      color: var(--text-dim);
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin: 2rem 0 0.9rem;
+      padding-top: 1.2rem;
+      border-top: 1px solid var(--border);
     }
 
     /* Presets */
     .presets { display: flex; gap: 0.4rem; flex-wrap: wrap; margin-bottom: 0.6rem; }
     .preset-btn {
-      padding: 0.4rem 0.75rem;
+      padding: 0.38rem 0.75rem;
       border-radius: 999px;
-      border: 1px solid #3a3a5a;
+      border: 1px solid var(--border);
       background: transparent;
-      color: #9898b8;
-      font-size: 0.8rem;
+      color: var(--text-muted);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.78rem;
+      font-weight: 400;
       cursor: pointer;
       transition: all 0.2s;
     }
-    .preset-btn:hover { border-color: #6a6a8a; color: #d0d0e8; }
-    .preset-btn.active { border-color: #6c63ff; color: #fff; background: rgba(108, 99, 255, 0.15); }
+    .preset-btn:hover { border-color: var(--text-dim); color: var(--text); }
+    .preset-btn.active {
+      border-color: var(--accent);
+      color: var(--text-bright);
+      background: var(--accent-glow);
+    }
     .preset-btn .delete-x {
       display: none;
       margin-left: 0.3rem;
-      color: #ff6b6b;
+      color: var(--danger);
       font-weight: bold;
     }
     .preset-btn.custom:hover .delete-x { display: inline; }
@@ -135,62 +257,210 @@
     .action-btn {
       padding: 0.35rem 0.7rem;
       border-radius: 999px;
-      border: 1px dashed #4a4a6a;
+      border: 1px dashed var(--border-light);
       background: transparent;
-      color: #7a7a9a;
-      font-size: 0.78rem;
+      color: var(--text-dim);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.76rem;
+      font-weight: 400;
       cursor: pointer;
       transition: all 0.2s;
     }
-    .action-btn:hover { border-color: #6c63ff; color: #b0b0d0; }
+    .action-btn:hover { border-color: var(--accent); color: var(--text); }
 
     /* Timer */
     .timer-row { display: flex; gap: 0.4rem; justify-content: center; }
     .timer-btn {
       padding: 0.35rem 0.7rem;
       border-radius: 999px;
-      border: 1px solid #3a3a5a;
+      border: 1px solid var(--border);
       background: transparent;
-      color: #8888a8;
-      font-size: 0.78rem;
+      color: var(--text-dim);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.76rem;
+      font-weight: 400;
       cursor: pointer;
       transition: all 0.2s;
     }
-    .timer-btn:hover { border-color: #6a6a8a; color: #c0c0d8; }
-    .timer-btn.active { border-color: #6c63ff; color: #fff; background: rgba(108, 99, 255, 0.15); }
-    .timer-display { color: #6c63ff; font-size: 0.82rem; margin-top: 0.6rem; min-height: 1.2em; text-align: center; }
+    .timer-btn:hover { border-color: var(--text-dim); color: var(--text); }
+    .timer-btn.active {
+      border-color: var(--accent);
+      color: var(--text-bright);
+      background: var(--accent-glow);
+    }
+    .timer-display {
+      color: var(--accent);
+      font-size: 0.8rem;
+      font-weight: 400;
+      font-variant-numeric: tabular-nums;
+      margin-top: 0.6rem;
+      min-height: 1.2em;
+      text-align: center;
+    }
 
-    /* Save dialog */
+    /* Utility buttons — fixed top-left */
+    .utility-row {
+      position: fixed;
+      top: calc(0.6rem + env(safe-area-inset-top));
+      right: calc(0.6rem + env(safe-area-inset-right));
+      display: flex; gap: 0.4rem;
+      z-index: 5;
+    }
+    .utility-btn {
+      height: 32px;
+      padding: 0 0.65rem;
+      border-radius: 999px;
+      border: 1px solid var(--border);
+      background: var(--surface);
+      color: var(--text-dim);
+      cursor: pointer;
+      display: flex; align-items: center; gap: 0.35rem;
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.68rem;
+      font-weight: 500;
+      letter-spacing: 0.02em;
+      transition: all 0.3s;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .utility-btn:hover, .utility-btn:active {
+      border-color: var(--accent);
+      color: var(--accent);
+      background: var(--surface-up);
+    }
+    .utility-btn svg { width: 14px; height: 14px; fill: currentColor; flex-shrink: 0; }
+
+    /* Dialog / Modal overlay */
     .dialog-overlay {
-      display: none; position: fixed; inset: 0;
-      background: rgba(0,0,0,0.6);
-      align-items: center; justify-content: center; z-index: 10;
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(8, 10, 16, 0.7);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      align-items: center; justify-content: center;
+      z-index: 10;
     }
-    .dialog-overlay.open { display: flex; }
+    .dialog-overlay.open {
+      display: flex;
+    }
+    @keyframes dialogIn {
+      from { opacity: 0; transform: scale(0.94) translateY(8px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
     .dialog {
-      background: #22223a; border: 1px solid #3a3a5a;
-      border-radius: 12px; padding: 1.5rem; width: 300px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.6rem;
+      width: 300px;
+      box-shadow: 0 24px 80px rgba(0,0,0,0.5), 0 0 1px rgba(255,255,255,0.05) inset;
+      animation: dialogIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
     }
-    .dialog h3 { font-size: 1rem; margin-bottom: 1rem; color: #c0c0d8; }
+    .dialog h3 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin-bottom: 1.1rem;
+      color: var(--text-bright);
+      letter-spacing: 0.02em;
+    }
     .dialog input[type="text"] {
-      width: 100%; padding: 0.5rem 0.7rem;
-      border-radius: 8px; border: 1px solid #4a4a6a;
-      background: #1a1a2e; color: #e0e0e0;
-      font-size: 0.9rem; outline: none; margin-bottom: 1rem;
+      width: 100%; padding: 0.55rem 0.8rem;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+      background: var(--bg);
+      color: var(--text-bright);
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.88rem;
+      font-weight: 300;
+      outline: none;
+      margin-bottom: 1rem;
+      transition: border-color 0.2s;
     }
-    .dialog input[type="text"]:focus { border-color: #6c63ff; }
+    .dialog input[type="text"]:focus { border-color: var(--accent); }
+    .dialog input[type="text"]::placeholder { color: var(--text-dim); }
     .dialog-btns { display: flex; gap: 0.5rem; justify-content: flex-end; }
     .dialog-btns button {
-      padding: 0.4rem 1rem; border-radius: 8px; border: none;
-      font-size: 0.85rem; cursor: pointer;
+      padding: 0.45rem 1.1rem;
+      border-radius: 10px;
+      border: none;
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.82rem;
+      font-weight: 400;
+      cursor: pointer;
+      transition: all 0.2s;
     }
-    .dialog-btns .cancel { background: #3a3a5a; color: #b0b0c8; }
-    .dialog-btns .save { background: #6c63ff; color: #fff; }
+    .dialog-btns .cancel {
+      background: var(--border);
+      color: var(--text-muted);
+    }
+    .dialog-btns .cancel:hover { background: var(--border-light); color: var(--text); }
+    .dialog-btns .save {
+      background: var(--accent);
+      color: var(--bg);
+    }
+    .dialog-btns .save:hover { background: var(--accent-bright); }
+
+    /* QR modal */
+    .qr-wrap {
+      display: flex; flex-direction: column;
+      align-items: center; gap: 1rem;
+    }
+    .qr-wrap svg {
+      width: 200px; height: 200px;
+      border-radius: 12px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.2);
+    }
+    .qr-url {
+      font-size: 0.72rem;
+      font-weight: 400;
+      color: var(--text-dim);
+      word-break: break-all;
+      text-align: center;
+      letter-spacing: 0.03em;
+    }
+
+    /* Install modal */
+    .install-steps { text-align: left; }
+    .install-steps .platform {
+      margin-bottom: 0.8rem;
+      padding: 0.8rem;
+      border-radius: 12px;
+      border: 1px solid var(--border);
+      background: rgba(255,255,255,0.015);
+      transition: all 0.2s;
+    }
+    .install-steps .platform.highlight {
+      border-color: var(--accent);
+      background: var(--accent-glow);
+    }
+    .install-steps .platform h4 {
+      font-family: "Plus Jakarta Sans", sans-serif;
+      font-size: 0.82rem;
+      font-weight: 500;
+      color: var(--text-bright);
+      margin-bottom: 0.5rem;
+      display: flex; align-items: center; gap: 0.5rem;
+    }
+    .install-steps .platform ol {
+      margin: 0; padding-left: 1.3rem;
+      font-size: 0.78rem;
+      font-weight: 300;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+    .install-steps .platform ol strong {
+      font-weight: 500;
+      color: var(--text);
+    }
+    .install-steps .platform .step-icon {
+      display: inline-block; width: 15px; height: 15px;
+      vertical-align: -3px;
+      fill: var(--accent);
+    }
   </style>
 </head>
 <body>
   <div class="app">
-    <h1>HUSHHUSH</h1>
+    <h1>HushHush</h1>
     <div class="status" id="status"></div>
 
     <button class="play-btn" id="playBtn" aria-label="Play">
@@ -245,6 +515,18 @@
       <button class="timer-btn" data-min="120">2h</button>
     </div>
     <div class="timer-display" id="timerDisplay"></div>
+
+    <!-- Utility buttons -->
+    <div class="utility-row">
+      <button class="utility-btn" id="qrBtn" aria-label="QR Code">
+        <svg viewBox="0 0 24 24"><path d="M3 3h8v8H3V3zm2 2v4h4V5H5zm9-2h8v8h-8V3zm2 2v4h4V5h-4zM3 14h8v8H3v-8zm2 2v4h4v-4H5zm12-2h2v2h-2v-2zm0 4h2v2h-2v-2zm-4 0h2v2h-2v-2zm4 4h2v2h-2v-2zm-4 0h2v2h-2v-2zm8-8h2v2h-2v-2zm0 4h2v2h-2v-2zm0 4h2v2h-2v-2z"/></svg>
+        Share
+      </button>
+      <button class="utility-btn" id="installBtn" aria-label="Add to Home Screen">
+        <svg viewBox="0 0 24 24"><path d="M18 15v3H6v-3H4v3c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2v-3h-2zm-1-4l-1.41-1.41L13 12.17V4h-2v8.17L8.41 9.59 7 11l5 5 5-5z"/></svg>
+        Install
+      </button>
+    </div>
   </div>
 
   <!-- Save preset dialog -->
@@ -259,10 +541,61 @@
     </div>
   </div>
 
+  <!-- QR code dialog -->
+  <div class="dialog-overlay" id="qrOverlay">
+    <div class="dialog">
+      <h3>Share HushHush</h3>
+      <div class="qr-wrap">
+        <svg viewBox="0 0 29 29" xmlns="http://www.w3.org/2000/svg">
+          <rect width="29" height="29" fill="#fff" rx="1"/>
+          <path d="M0,0h7v1h-7zM10,0h1v1h-1zM14,0h1v1h-1zM17,0h3v1h-3zM22,0h7v1h-7zM0,1h1v1h-1zM6,1h1v1h-1zM9,1h1v1h-1zM13,1h1v1h-1zM17,1h3v1h-3zM22,1h1v1h-1zM28,1h1v1h-1zM0,2h1v1h-1zM2,2h3v1h-3zM6,2h1v1h-1zM8,2h1v1h-1zM11,2h1v1h-1zM15,2h1v1h-1zM20,2h1v1h-1zM22,2h1v1h-1zM24,2h3v1h-3zM28,2h1v1h-1zM0,3h1v1h-1zM2,3h3v1h-3zM6,3h1v1h-1zM9,3h1v1h-1zM12,3h2v1h-2zM16,3h1v1h-1zM18,3h1v1h-1zM22,3h1v1h-1zM24,3h3v1h-3zM28,3h1v1h-1zM0,4h1v1h-1zM2,4h3v1h-3zM6,4h1v1h-1zM9,4h1v1h-1zM12,4h2v1h-2zM16,4h1v1h-1zM19,4h1v1h-1zM22,4h1v1h-1zM24,4h3v1h-3zM28,4h1v1h-1zM0,5h1v1h-1zM6,5h1v1h-1zM10,5h3v1h-3zM14,5h7v1h-7zM22,5h1v1h-1zM28,5h1v1h-1zM0,6h7v1h-7zM8,6h1v1h-1zM10,6h1v1h-1zM12,6h1v1h-1zM14,6h1v1h-1zM16,6h1v1h-1zM18,6h1v1h-1zM20,6h1v1h-1zM22,6h7v1h-7zM8,7h1v1h-1zM11,7h1v1h-1zM15,7h1v1h-1zM17,7h2v1h-2zM0,8h3v1h-3zM4,8h5v1h-5zM12,8h1v1h-1zM16,8h2v1h-2zM20,8h3v1h-3zM26,8h1v1h-1zM1,9h1v1h-1zM3,9h1v1h-1zM5,9h1v1h-1zM7,9h3v1h-3zM11,9h3v1h-3zM15,9h2v1h-2zM20,9h3v1h-3zM25,9h1v1h-1zM28,9h1v1h-1zM1,10h2v1h-2zM5,10h2v1h-2zM8,10h1v1h-1zM10,10h3v1h-3zM14,10h4v1h-4zM20,10h1v1h-1zM24,10h1v1h-1zM26,10h3v1h-3zM1,11h3v1h-3zM5,11h1v1h-1zM8,11h3v1h-3zM12,11h3v1h-3zM16,11h2v1h-2zM20,11h2v1h-2zM23,11h2v1h-2zM27,11h1v1h-1zM2,12h1v1h-1zM4,12h1v1h-1zM6,12h1v1h-1zM8,12h1v1h-1zM10,12h2v1h-2zM14,12h4v1h-4zM19,12h4v1h-4zM25,12h1v1h-1zM27,12h2v1h-2zM0,13h1v1h-1zM2,13h1v1h-1zM4,13h2v1h-2zM8,13h1v1h-1zM10,13h2v1h-2zM14,13h2v1h-2zM17,13h1v1h-1zM20,13h1v1h-1zM22,13h1v1h-1zM25,13h1v1h-1zM28,13h1v1h-1zM0,14h3v1h-3zM4,14h3v1h-3zM9,14h2v1h-2zM13,14h1v1h-1zM17,14h2v1h-2zM21,14h3v1h-3zM25,14h1v1h-1zM27,14h2v1h-2zM2,15h2v1h-2zM7,15h3v1h-3zM11,15h1v1h-1zM17,15h4v1h-4zM23,15h1v1h-1zM25,15h1v1h-1zM27,15h1v1h-1zM1,16h1v1h-1zM4,16h1v1h-1zM6,16h2v1h-2zM9,16h1v1h-1zM12,16h1v1h-1zM17,16h1v1h-1zM21,16h3v1h-3zM25,16h1v1h-1zM27,16h2v1h-2zM1,17h1v1h-1zM4,17h1v1h-1zM10,17h4v1h-4zM16,17h1v1h-1zM20,17h1v1h-1zM22,17h1v1h-1zM25,17h2v1h-2zM28,17h1v1h-1zM0,18h1v1h-1zM3,18h1v1h-1zM5,18h2v1h-2zM9,18h1v1h-1zM11,18h2v1h-2zM14,18h1v1h-1zM18,18h1v1h-1zM20,18h1v1h-1zM22,18h3v1h-3zM27,18h2v1h-2zM1,19h2v1h-2zM7,19h1v1h-1zM12,19h3v1h-3zM17,19h1v1h-1zM22,19h1v1h-1zM25,19h1v1h-1zM27,19h1v1h-1zM0,20h1v1h-1zM2,20h1v1h-1zM4,20h4v1h-4zM11,20h1v1h-1zM14,20h5v1h-5zM20,20h5v1h-5zM8,21h2v1h-2zM11,21h1v1h-1zM14,21h1v1h-1zM16,21h1v1h-1zM19,21h2v1h-2zM24,21h1v1h-1zM26,21h3v1h-3zM0,22h7v1h-7zM8,22h3v1h-3zM13,22h1v1h-1zM17,22h1v1h-1zM19,22h2v1h-2zM22,22h1v1h-1zM24,22h2v1h-2zM27,22h2v1h-2zM0,23h1v1h-1zM6,23h1v1h-1zM8,23h1v1h-1zM10,23h2v1h-2zM17,23h1v1h-1zM20,23h1v1h-1zM24,23h2v1h-2zM0,24h1v1h-1zM2,24h3v1h-3zM6,24h1v1h-1zM8,24h1v1h-1zM10,24h1v1h-1zM12,24h1v1h-1zM16,24h2v1h-2zM20,24h5v1h-5zM28,24h1v1h-1zM0,25h1v1h-1zM2,25h3v1h-3zM6,25h1v1h-1zM11,25h3v1h-3zM16,25h5v1h-5zM24,25h1v1h-1zM26,25h3v1h-3zM0,26h1v1h-1zM2,26h3v1h-3zM6,26h1v1h-1zM8,26h1v1h-1zM10,26h3v1h-3zM14,26h1v1h-1zM17,26h3v1h-3zM23,26h3v1h-3zM28,26h1v1h-1zM0,27h1v1h-1zM6,27h1v1h-1zM8,27h1v1h-1zM12,27h3v1h-3zM16,27h2v1h-2zM19,27h5v1h-5zM27,27h1v1h-1zM0,28h7v1h-7zM8,28h1v1h-1zM10,28h2v1h-2zM14,28h4v1h-4zM20,28h1v1h-1zM22,28h1v1h-1zM27,28h2v1h-2z" fill="#000"/>
+        </svg>
+        <div class="qr-url">hushhush.bunchmunch.rocks</div>
+      </div>
+      <div class="dialog-btns" style="margin-top: 1rem;">
+        <button class="cancel" id="qrClose">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Install dialog -->
+  <div class="dialog-overlay" id="installOverlay">
+    <div class="dialog" style="width: 320px;">
+      <h3>Add to Home Screen</h3>
+      <div class="install-steps">
+        <div class="platform" id="iosSteps">
+          <h4>
+            <svg class="step-icon" viewBox="0 0 24 24"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.8-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
+            iPhone / iPad
+          </h4>
+          <ol>
+            <li>Open in <strong>Safari</strong></li>
+            <li>Tap <svg class="step-icon" viewBox="0 0 24 24"><path d="M16 5l-1.42 1.42-1.59-1.59V16h-2V4.83L9.42 6.42 8 5l4-4 4 4zm4 5v11c0 1.1-.9 2-2 2H6c-1.11 0-2-.9-2-2V10c0-1.11.89-2 2-2h3v2H6v11h12V10h-3V8h3c1.1 0 2 .89 2 2z"/></svg> <strong>Share</strong></li>
+            <li>Scroll down, tap <strong>"Add to Home Screen"</strong></li>
+          </ol>
+        </div>
+        <div class="platform" id="androidSteps">
+          <h4>
+            <svg class="step-icon" viewBox="0 0 24 24"><path d="M6 18c0 .55.45 1 1 1h1v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h2v3.5c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5V19h1c.55 0 1-.45 1-1V7H6v11zM3.5 7C2.67 7 2 7.67 2 8.5v7c0 .83.67 1.5 1.5 1.5S5 16.33 5 15.5v-7C5 7.67 4.33 7 3.5 7zm17 0c-.83 0-1.5.67-1.5 1.5v7c0 .83.67 1.5 1.5 1.5s1.5-.67 1.5-1.5v-7c0-.83-.67-1.5-1.5-1.5zm-4.97-5.84l1.3-1.3c.2-.2.2-.51 0-.71-.2-.2-.51-.2-.71 0l-1.48 1.48C13.85.55 12.95.25 12 .25s-1.85.3-2.64.88L7.88.65c-.2-.2-.51-.2-.71 0-.2.2-.2.51 0 .71l1.31 1.31C6.97 3.79 6 5.55 6 7h12c0-1.45-.97-3.21-2.47-4.84zM10 5H9V4h1v1zm5 0h-1V4h1v1z"/></svg>
+            Android
+          </h4>
+          <ol>
+            <li>Open in <strong>Chrome</strong></li>
+            <li>Tap <svg class="step-icon" viewBox="0 0 24 24"><path d="M12 8c1.1 0 2-.9 2-2s-.9-2-2-2-2 .9-2 2 .9 2 2 2zm0 2c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2zm0 6c-1.1 0-2 .9-2 2s.9 2 2 2 2-.9 2-2-.9-2-2-2z"/></svg> <strong>Menu</strong> (top right)</li>
+            <li>Tap <strong>"Add to Home Screen"</strong></li>
+          </ol>
+        </div>
+      </div>
+      <div class="dialog-btns" style="margin-top: 0.5rem;">
+        <button class="cancel" id="installClose">Close</button>
+      </div>
+    </div>
+  </div>
+
   <!-- Two audio elements for gapless double-buffered looping -->
   <audio id="audioA" playsinline preload="auto"></audio>
   <audio id="audioB" playsinline preload="auto"></audio>
 
-  <script src="app.js"></script>
+  <script src="app.js?v=3"></script>
 </body>
 </html>

@@ -625,6 +625,40 @@ if (navigator.audioSession) {
   navigator.audioSession.type = "playback";
 }
 
+// ===== UI: QR & Install Modals =====
+const qrOverlay = document.getElementById("qrOverlay");
+const installOverlay = document.getElementById("installOverlay");
+
+document.getElementById("qrBtn").addEventListener("click", () => {
+  qrOverlay.classList.add("open");
+});
+
+document.getElementById("qrClose").addEventListener("click", () => {
+  qrOverlay.classList.remove("open");
+});
+
+qrOverlay.addEventListener("click", (e) => {
+  if (e.target === qrOverlay) qrOverlay.classList.remove("open");
+});
+
+document.getElementById("installBtn").addEventListener("click", () => {
+  // Detect platform and highlight relevant section
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/.test(ua);
+  document.getElementById("iosSteps").classList.toggle("highlight", isIOS || !isAndroid);
+  document.getElementById("androidSteps").classList.toggle("highlight", isAndroid);
+  installOverlay.classList.add("open");
+});
+
+document.getElementById("installClose").addEventListener("click", () => {
+  installOverlay.classList.remove("open");
+});
+
+installOverlay.addEventListener("click", (e) => {
+  if (e.target === installOverlay) installOverlay.classList.remove("open");
+});
+
 // ===== Init =====
 renderPresets();
 statusEl.textContent = "Ready";
