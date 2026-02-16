@@ -1,7 +1,7 @@
 // ===== Configuration =====
 const SAMPLE_RATE = 44100;
 const DURATION = 60;       // seconds per buffer
-const FADE = 5;            // crossfade overlap seconds
+const FADE = 5;            // crossfade seconds for regen transitions
 const MAX_CACHE = 5;
 const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
 
@@ -16,8 +16,7 @@ const BUILTIN_PRESETS = [
 ];
 
 // ===== DOM =====
-const audioA         = document.getElementById("audioA");
-const audioB         = document.getElementById("audioB");
+const silentAudio    = document.getElementById("silentAudio");
 const playBtn        = document.getElementById("playBtn");
 const playIcon       = document.getElementById("playIcon");
 const stopIcon       = document.getElementById("stopIcon");
@@ -39,56 +38,77 @@ const modSpeedValEl  = document.getElementById("modSpeedVal");
 const colorBtns      = document.querySelectorAll(".color-btn");
 const timerBtns      = document.querySelectorAll(".timer-btn");
 const hasMediaSession = 'mediaSession' in navigator;
-const hasPositionState = hasMediaSession && 'setPositionState' in navigator.mediaSession;
 
 // ===== State =====
 let machine = HushState.create();
 let genToken = 0;
-let pendingBlob = null;
+let pendingBuffer = null;
 let pendingSettings = null;
 let pendingError = null;
-let activeAudio = audioA;
-let nextAudio = audioB;
+let pendingRegen = false;
 let activePreset = null;
 let timerInterval = null;
 let timerEnd = null;
-let currentBlobA = null;
-let currentBlobB = null;
 let loadedSettingsKey = null;
 let activeColor = "white";
 let cachedVolume = 0.3;
 let playingSettings = null;
-let regenLoad = false;
-var crossfade = CrossfadeEngine.create({ fadeDuration: FADE, bufferDuration: DURATION });
-const audioElements = [audioA, audioB];
 
-// ===== Live AudioContext for volume control (iOS ignores <audio>.volume) =====
+// Audio source tracking (AudioBufferSourceNode is one-shot — new node per play/resume)
+let activeSource = null;
+let activeSourceGain = null;
+let activeBuffer = null;
+let fadingOutSource = null;
+let fadingOutGain = null;
+let activeTransition = null;
+
+// ===== Live AudioContext =====
 let liveCtx = null;
-let gainNode = null;
+let masterGain = null;
+
+function createSilentBlob() {
+  // 1s of silent 16-bit mono PCM WAV (all-zero = true silence, even on iOS where volume is read-only)
+  var n = 44100;
+  var buf = new ArrayBuffer(44 + n * 2);
+  var v = new DataView(buf);
+  v.setUint32(0, 0x52494646, false);
+  v.setUint32(4, 36 + n * 2, true);
+  v.setUint32(8, 0x57415645, false);
+  v.setUint32(12, 0x666d7420, false);
+  v.setUint32(16, 16, true);
+  v.setUint16(20, 1, true);
+  v.setUint16(22, 1, true);
+  v.setUint32(24, 44100, true);
+  v.setUint32(28, 88200, true);
+  v.setUint16(32, 2, true);
+  v.setUint16(34, 16, true);
+  v.setUint32(36, 0x64617461, false);
+  v.setUint32(40, n * 2, true);
+  return new Blob([buf], { type: 'audio/wav' });
+}
+
 function ensureLiveContext() {
   if (liveCtx) return;
   liveCtx = new (window.AudioContext || window.webkitAudioContext)();
-  gainNode = liveCtx.createGain();
-  gainNode.gain.value = cachedVolume;
-  gainNode.connect(liveCtx.destination);
-  var srcA = liveCtx.createMediaElementSource(audioA);
-  var srcB = liveCtx.createMediaElementSource(audioB);
-  srcA.connect(gainNode);
-  srcB.connect(gainNode);
+  masterGain = liveCtx.createGain();
+  masterGain.gain.value = cachedVolume;
+  masterGain.connect(liveCtx.destination);
+  silentAudio.src = URL.createObjectURL(createSilentBlob());
+  silentAudio.load();
 }
+
 function resumeLiveContext() {
   if (liveCtx && liveCtx.state === 'suspended') liveCtx.resume();
 }
 
-// ===== Blob Cache =====
-const blobCache = new Map();
+// ===== Buffer Cache =====
+const bufferCache = new Map();
 
 function settingsKey(s) {
   return `${s.color}|${s.lowCut}|${s.highCut}|${s.mod}|${s.modSpeed}`;
 }
 
 // ===== Noise Sample Generation =====
-// Writes directly into a provided Float32Array to avoid allocation + copy
 function generateSamples(color, out) {
   const length = out.length;
 
@@ -148,60 +168,23 @@ function generateSamples(color, out) {
 
 }
 
-// ===== WAV Encoding =====
-// Pre-compute the static 44-byte WAV header (constant for all generations)
+// ===== Generation Pipeline (seamless loop via SeamlessLoop.blend) =====
 const WAV_SAMPLES = SAMPLE_RATE * DURATION;
-const WAV_HEADER = new Uint8Array(44);
-{
-  const v = new DataView(WAV_HEADER.buffer);
-  const hdr = WAV_HEADER;
-  // "RIFF"
-  hdr[0] = 82; hdr[1] = 73; hdr[2] = 70; hdr[3] = 70;
-  v.setUint32(4, 36 + WAV_SAMPLES * 2, true);
-  // "WAVE"
-  hdr[8] = 87; hdr[9] = 65; hdr[10] = 86; hdr[11] = 69;
-  // "fmt "
-  hdr[12] = 102; hdr[13] = 109; hdr[14] = 116; hdr[15] = 32;
-  v.setUint32(16, 16, true);
-  v.setUint16(20, 1, true);
-  v.setUint16(22, 1, true);
-  v.setUint32(24, SAMPLE_RATE, true);
-  v.setUint32(28, SAMPLE_RATE * 2, true);
-  v.setUint16(32, 2, true);
-  v.setUint16(34, 16, true);
-  // "data"
-  hdr[36] = 100; hdr[37] = 97; hdr[38] = 116; hdr[39] = 97;
-  v.setUint32(40, WAV_SAMPLES * 2, true);
-}
+const FADE_SAMPLES = FADE * SAMPLE_RATE;
+const RENDER_SAMPLES = WAV_SAMPLES + FADE_SAMPLES;
 
-function encodeWAV(samples) {
-  const len = samples.length;
-  const buf = new ArrayBuffer(44 + len * 2);
-  new Uint8Array(buf, 0, 44).set(WAV_HEADER);
-
-  const pcm = new Int16Array(buf, 44);
-  for (let i = 0; i < len; i++) {
-    const s = samples[i];
-    pcm[i] = s > 0 ? (s < 1 ? s * 0x7FFF : 0x7FFF) : (s > -1 ? s * 0x8000 : -0x8000);
-  }
-
-  return new Blob([buf], { type: "audio/wav" });
-}
-
-// ===== Generation Pipeline (single native OfflineAudioContext render) =====
 async function generateNoise(settings) {
   const key = settingsKey(settings);
-  if (blobCache.has(key)) return blobCache.get(key);
+  if (bufferCache.has(key)) return bufferCache.get(key);
 
-  const offCtx = new OfflineCtx(1, WAV_SAMPLES, SAMPLE_RATE);
-  const buffer = offCtx.createBuffer(1, WAV_SAMPLES, SAMPLE_RATE);
+  const offCtx = new OfflineCtx(1, RENDER_SAMPLES, SAMPLE_RATE);
+  const buffer = offCtx.createBuffer(1, RENDER_SAMPLES, SAMPLE_RATE);
   generateSamples(settings.color, buffer.getChannelData(0));
 
   const src = offCtx.createBufferSource();
   src.buffer = buffer;
   let node = src;
 
-  // Highpass filter (native BiquadFilterNode)
   if (settings.lowCut > 0) {
     const hp = offCtx.createBiquadFilter();
     hp.type = "highpass";
@@ -210,7 +193,6 @@ async function generateNoise(settings) {
     node = hp;
   }
 
-  // Lowpass filter (native BiquadFilterNode)
   if (settings.highCut < 20000) {
     const lp = offCtx.createBiquadFilter();
     lp.type = "lowpass";
@@ -219,7 +201,6 @@ async function generateNoise(settings) {
     node = lp;
   }
 
-  // Tremolo (native OscillatorNode → GainNode)
   if (settings.mod > 0) {
     const depth = settings.mod / 100 * 0.8;
     const freq = 0.05 + (settings.modSpeed / 100) * 1.95;
@@ -237,28 +218,23 @@ async function generateNoise(settings) {
     node = tremolo;
   }
 
-  // Fade in/out (native GainNode automation)
-  const fade = offCtx.createGain();
-  fade.gain.setValueAtTime(0, 0);
-  fade.gain.linearRampToValueAtTime(1, FADE);
-  fade.gain.setValueAtTime(1, DURATION - FADE);
-  fade.gain.linearRampToValueAtTime(0, DURATION);
-  node.connect(fade);
-  node = fade;
-
   node.connect(offCtx.destination);
   src.start();
 
   const rendered = await offCtx.startRendering();
-  const blob = encodeWAV(rendered.getChannelData(0));
+  const blended = SeamlessLoop.blend(rendered.getChannelData(0), WAV_SAMPLES, FADE_SAMPLES);
 
-  if (blobCache.size >= MAX_CACHE) {
-    const oldest = blobCache.keys().next().value;
-    blobCache.delete(oldest);
+  // Create AudioBuffer from blended samples (used directly by AudioBufferSourceNode)
+  var resultBuffer = offCtx.createBuffer(1, WAV_SAMPLES, SAMPLE_RATE);
+  resultBuffer.getChannelData(0).set(blended);
+
+  if (bufferCache.size >= MAX_CACHE) {
+    const oldest = bufferCache.keys().next().value;
+    bufferCache.delete(oldest);
   }
-  blobCache.set(key, blob);
+  bufferCache.set(key, resultBuffer);
 
-  return blob;
+  return resultBuffer;
 }
 
 // ===== Settings =====
@@ -272,87 +248,22 @@ function getSettings() {
   };
 }
 
-// ===== Audio Buffer Management =====
-function revokeOldBlobs() {
-  if (currentBlobA) { URL.revokeObjectURL(currentBlobA); currentBlobA = null; }
-  if (currentBlobB) { URL.revokeObjectURL(currentBlobB); currentBlobB = null; }
+// ===== Audio Playback (AudioBufferSourceNode.loop = true) =====
+function startSource(buf, gain) {
+  var source = liveCtx.createBufferSource();
+  source.buffer = buf;
+  source.loop = true;
+  source.connect(gain);
+  source.start();
+  return source;
 }
 
-function loadBlob(blob) {
-  revokeOldBlobs();
-  currentBlobA = URL.createObjectURL(blob);
-  currentBlobB = URL.createObjectURL(blob);
-  audioA.src = currentBlobA;
-  audioB.src = currentBlobB;
-  audioA.load();
-  audioB.load();
+function stopSource(src) {
+  if (src) try { src.stop(); } catch(e) {}
 }
-
-function resetBuffers() {
-  activeAudio = audioA;
-  nextAudio = audioB;
-  audioA.currentTime = 0;
-  audioB.currentTime = 0;
-  audioB.pause();
-}
-
-function waitForReady(el) {
-  return new Promise((resolve, reject) => {
-    function onReady() { el.removeEventListener("error", onError); resolve(); }
-    function onError(e) { el.removeEventListener("canplaythrough", onReady); reject(e); }
-    el.addEventListener("canplaythrough", onReady, { once: true });
-    el.addEventListener("error", onError, { once: true });
-  });
-}
-
-// ===== Crossfade Engine =====
-function handleTimeUpdate(e) {
-  const audio = e.target;
-  if (audio !== activeAudio || (machine.phase !== 'playing' && machine.phase !== 'regenerating')) return;
-  if (regenLoad) return;
-
-  const timeLeft = audio.duration - audio.currentTime;
-  if (!CrossfadeEngine.shouldTrigger(crossfade, timeLeft)) return;
-
-  const result = CrossfadeEngine.startCrossfade(crossfade, timeLeft);
-  crossfade = result.engine;
-
-  const oldEl = audioElements[result.oldIndex];
-  const newEl = audioElements[crossfade.activeIndex];
-  activeAudio = newEl;
-  nextAudio = oldEl;
-
-  newEl.currentTime = result.nextStartOffset;
-  newEl.play().catch(() => {});
-
-  // Pause old element after overlap to prevent it looping back
-  setTimeout(() => {
-    oldEl.pause();
-    crossfade = CrossfadeEngine.completeCrossfade(crossfade);
-  }, result.pauseDelay);
-
-  // Re-assert media session after crossfade so lock screen stays attached
-  if (playingSettings) updateMediaSession(playingSettings);
-}
-
-audioA.addEventListener("timeupdate", handleTimeUpdate);
-audioB.addEventListener("timeupdate", handleTimeUpdate);
-
-// Bidirectional MediaSession sync: re-assert "playing" on any audio play/pause
-// so the lock screen never flickers to "paused" during crossfade
-function syncPlaybackState() {
-  if ((machine.phase === 'playing' || machine.phase === 'regenerating') && hasMediaSession) {
-    navigator.mediaSession.playbackState = 'playing';
-  }
-}
-audioA.addEventListener("play", syncPlaybackState);
-audioB.addEventListener("play", syncPlaybackState);
-audioA.addEventListener("pause", syncPlaybackState);
-audioB.addEventListener("pause", syncPlaybackState);
 
 // ===== UI State =====
 function updatePlayUI(state) {
-  // state: "stopped" | "loading" | "playing"
   playIcon.style.display  = state === "stopped" ? "block" : "none";
   stopIcon.style.display  = state === "playing" ? "block" : "none";
   loadIcon.style.display  = state === "loading" ? "block" : "none";
@@ -386,17 +297,28 @@ function executeActions(actions) {
   for (const action of actions) {
     switch (action) {
       case 'STOP_AUDIO':
-        audioA.pause();
-        audioB.pause();
+        stopSource(activeSource);
+        activeSource = null;
+        if (activeSourceGain) { activeSourceGain.disconnect(); activeSourceGain = null; }
+        stopSource(fadingOutSource);
+        fadingOutSource = null;
+        if (fadingOutGain) { fadingOutGain.disconnect(); fadingOutGain = null; }
+        if (activeTransition) { clearTimeout(activeTransition); activeTransition = null; }
+        silentAudio.pause();
         break;
       case 'UI_LOADING':
         updatePlayUI('loading');
         break;
       case 'UI_PLAYING':
         updatePlayUI('playing');
-        setStatus('Playing');
         playingSettings = pendingSettings || getSettings();
         updateMediaSession(playingSettings);
+        if (activeTransition) {
+          var name = activePreset || playingSettings.color.charAt(0).toUpperCase() + playingSettings.color.slice(1) + ' noise';
+          setStatus('Switching to ' + name + '\u2026');
+        } else {
+          setStatus('Playing');
+        }
         break;
       case 'UI_STOPPED':
         updatePlayUI('stopped');
@@ -412,47 +334,67 @@ function executeActions(actions) {
         executeLoadAudio();
         break;
       case 'PLAY_AUDIO':
-        if (regenLoad) {
-          // Regeneration: crossfade from old audio to newly generated audio
-          nextAudio.currentTime = 0;
-          nextAudio.play().then(() => {
-            if (machine.phase === 'playing') updateMediaSession(pendingSettings || getSettings());
-          }).catch(() => {});
-          const oldEl = activeAudio;
-          activeAudio = nextAudio;
-          nextAudio = oldEl;
-          const rToken = genToken;
-          const rBlob = pendingBlob;
-          const rKey = settingsKey(pendingSettings);
-          setTimeout(() => {
-            if (rToken === genToken) {
-              const url = URL.createObjectURL(rBlob);
-              if (oldEl === audioA) {
-                if (currentBlobA) URL.revokeObjectURL(currentBlobA);
-                currentBlobA = url;
+        if (pendingRegen) {
+          // Regen: crossfade from active source to new source via GainNodes
+          stopSource(fadingOutSource);
+          if (fadingOutGain) fadingOutGain.disconnect();
+          if (activeTransition) clearTimeout(activeTransition);
+
+          fadingOutSource = activeSource;
+          fadingOutGain = activeSourceGain;
+
+          var now = liveCtx.currentTime;
+
+          // Fade out old
+          fadingOutGain.gain.cancelScheduledValues(0);
+          fadingOutGain.gain.setValueAtTime(1, now);
+          fadingOutGain.gain.linearRampToValueAtTime(0, now + FADE);
+
+          // Fade in new
+          activeSourceGain = liveCtx.createGain();
+          activeSourceGain.gain.setValueAtTime(0, now);
+          activeSourceGain.gain.linearRampToValueAtTime(1, now + FADE);
+          activeSourceGain.connect(masterGain);
+          activeSource = startSource(pendingBuffer, activeSourceGain);
+          activeBuffer = pendingBuffer;
+          loadedSettingsKey = settingsKey(pendingSettings);
+
+          // After fade: clean up old source + update status
+          var oldSrc = fadingOutSource;
+          var oldGain = fadingOutGain;
+          activeTransition = setTimeout(function() {
+            activeTransition = null;
+            stopSource(oldSrc);
+            oldGain.disconnect();
+            if (fadingOutSource === oldSrc) { fadingOutSource = null; fadingOutGain = null; }
+            if (machine.phase === 'playing') {
+              if (timerEnd) {
+                updateTimerDisplay(true);
               } else {
-                if (currentBlobB) URL.revokeObjectURL(currentBlobB);
-                currentBlobB = url;
+                setStatus('Playing');
               }
-              oldEl.src = url;
-              oldEl.load();
-              loadedSettingsKey = rKey;
             }
           }, FADE * 1000);
+
+          updateMediaSession(pendingSettings || getSettings());
         } else {
-          resetBuffers();
-          activeAudio.play().then(() => {
-            if (machine.phase === 'playing') updateMediaSession(pendingSettings || getSettings());
-          }).catch(() => {});
+          // Fresh play
+          activeSourceGain = liveCtx.createGain();
+          activeSourceGain.gain.value = 1;
+          activeSourceGain.connect(masterGain);
+          activeSource = startSource(pendingBuffer, activeSourceGain);
+          activeBuffer = pendingBuffer;
           loadedSettingsKey = settingsKey(pendingSettings);
+          updateMediaSession(pendingSettings || getSettings());
         }
-        regenLoad = false;
+        pendingRegen = false;
         break;
       case 'RESUME_AUDIO':
-        resetBuffers();
-        activeAudio.play().then(() => {
-          if (machine.phase === 'playing') updateMediaSession(getSettings());
-        }).catch(() => {});
+        activeSourceGain = liveCtx.createGain();
+        activeSourceGain.gain.value = 1;
+        activeSourceGain.connect(masterGain);
+        activeSource = startSource(activeBuffer, activeSourceGain);
+        updateMediaSession(getSettings());
         break;
       case 'SHOW_ERROR':
         setStatus('Error: ' + (pendingError ? pendingError.message : 'Unknown'));
@@ -469,9 +411,9 @@ async function executeGeneration() {
   setStatus('Generating ' + settings.color + ' noise\u2026');
 
   try {
-    const blob = await generateNoise(settings);
+    const buffer = await generateNoise(settings);
     if (token !== genToken) return;
-    pendingBlob = blob;
+    pendingBuffer = buffer;
     dispatch('GEN_COMPLETE');
   } catch (err) {
     if (token !== genToken) return;
@@ -480,43 +422,10 @@ async function executeGeneration() {
   }
 }
 
-async function executeLoadAudio() {
-  const token = genToken;
-  regenLoad = (machine.phase === 'regenerating');
-
-  if (regenLoad) {
-    // Load new audio into nextAudio only — don't disrupt current playback
-    const url = URL.createObjectURL(pendingBlob);
-    if (nextAudio === audioA) {
-      if (currentBlobA) URL.revokeObjectURL(currentBlobA);
-      currentBlobA = url;
-    } else {
-      if (currentBlobB) URL.revokeObjectURL(currentBlobB);
-      currentBlobB = url;
-    }
-    nextAudio.src = url;
-    nextAudio.load();
-    try {
-      await waitForReady(nextAudio);
-      if (token !== genToken) return;
-      dispatch('AUDIO_READY');
-    } catch (err) {
-      if (token !== genToken) return;
-      pendingError = err;
-      dispatch('ERROR');
-    }
-  } else {
-    loadBlob(pendingBlob);
-    try {
-      await waitForReady(audioA);
-      if (token !== genToken) return;
-      dispatch('AUDIO_READY');
-    } catch (err) {
-      if (token !== genToken) return;
-      pendingError = err;
-      dispatch('ERROR');
-    }
-  }
+function executeLoadAudio() {
+  pendingRegen = (machine.phase === 'regenerating');
+  // Buffer is already ready — no async loading needed with AudioBufferSourceNode
+  dispatch('AUDIO_READY');
 }
 
 playBtn.addEventListener("click", () => {
@@ -525,18 +434,22 @@ playBtn.addEventListener("click", () => {
   if (machine.phase !== 'idle') {
     dispatch('STOP');
   } else {
+    // Start silent audio immediately (user gesture required on iOS)
+    silentAudio.play().catch(function(){});
     const key = settingsKey(getSettings());
-    dispatch(key === loadedSettingsKey && currentBlobA ? 'PLAY_CACHED' : 'PLAY');
+    dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
   }
 });
 
 // ===== Media Session =====
 if (hasMediaSession) {
   navigator.mediaSession.setActionHandler("play", () => {
+    ensureLiveContext();
     resumeLiveContext();
     if (machine.phase === 'idle') {
+      silentAudio.play().catch(function(){});
       const key = settingsKey(getSettings());
-      dispatch(key === loadedSettingsKey && currentBlobA ? 'PLAY_CACHED' : 'PLAY');
+      dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
     }
   });
   navigator.mediaSession.setActionHandler("pause", () => { if (machine.phase !== 'idle') dispatch('STOP'); });
@@ -569,15 +482,6 @@ function updateMediaSession(settings) {
     artwork: sessionArtwork,
   });
   navigator.mediaSession.playbackState = "playing";
-  if (hasPositionState) {
-    try {
-      navigator.mediaSession.setPositionState({
-        duration: DURATION,
-        playbackRate: 1,
-        position: activeAudio.currentTime || 0,
-      });
-    } catch (e) {}
-  }
 }
 
 // ===== UI: Color Buttons =====
@@ -600,7 +504,7 @@ volSlider.addEventListener("input", () => {
   volValEl.textContent = volSlider.value + "%";
   updateSliderFill(volSlider);
   cachedVolume = parseInt(volSlider.value) / 100;
-  if (gainNode) gainNode.gain.value = cachedVolume;
+  if (masterGain) masterGain.gain.value = cachedVolume;
   saveSettings();
 });
 
@@ -817,7 +721,6 @@ function clearTimer() {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   timerEnd = null;
   timerBtns.forEach(b => b.classList.toggle("active", b.dataset.min === "0"));
-  // Restore "Playing" status if still playing
   if (machine.phase === 'playing' || machine.phase === 'regenerating') {
     setStatus('Playing');
   }
@@ -848,6 +751,7 @@ function setTimer(minutes) {
 
 function updateTimerDisplay(fade) {
   if (!timerEnd) return;
+  if (activeTransition) return;
   const left = Math.max(0, timerEnd - Date.now());
   const m = Math.floor(left / 60000);
   const s = Math.floor((left % 60000) / 1000);
@@ -855,7 +759,6 @@ function updateTimerDisplay(fade) {
   if (fade) {
     setStatus(text);
   } else {
-    // Direct update — no fade for every-second ticks
     statusTarget = text;
     statusEl.textContent = text;
   }
@@ -889,7 +792,6 @@ qrOverlay.addEventListener("click", (e) => {
 });
 
 document.getElementById("installBtn").addEventListener("click", () => {
-  // Highlight the browser the user is currently using
   const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
   document.getElementById("chromeSteps")?.classList.toggle("highlight", !isSafari);
   document.getElementById("safariSteps")?.classList.toggle("highlight", isSafari);
@@ -923,13 +825,11 @@ function restoreSettings() {
     const s = JSON.parse(localStorage.getItem("hushhush_settings"));
     if (!s) return;
 
-    // Color
     if (s.color) {
       activeColor = s.color;
       colorBtns.forEach(b => b.classList.toggle("active", b.dataset.color === s.color));
     }
 
-    // Sliders
     if (s.volume != null) { volSlider.value = s.volume; volValEl.textContent = s.volume + "%"; cachedVolume = s.volume / 100; }
     if (s.lowCut != null) lowCutSlider.value = s.lowCut;
     if (s.highCut != null) highCutSlider.value = s.highCut;
@@ -942,7 +842,6 @@ function restoreSettings() {
       modSpeed: parseInt(modSpeedSlider.value),
     });
 
-    // Restore active preset
     if (s.preset) activePreset = s.preset;
   } catch (e) {}
 }
@@ -971,4 +870,3 @@ customizeToggle.addEventListener('click', function() {
   customizeToggle.classList.toggle('open');
   localStorage.setItem('hushhush_customize', isOpen ? 'open' : '');
 });
-

@@ -706,12 +706,11 @@
     </div>
   </div>
 
-  <!-- Two audio elements for gapless double-buffered looping -->
-  <audio id="audioA" playsinline preload="auto" loop></audio>
-  <audio id="audioB" playsinline preload="auto" loop></audio>
+  <!-- Silent audio element keeps MediaSession/lock screen alive -->
+  <audio id="silentAudio" playsinline preload="auto" loop></audio>
 
-  <script src="state.js?v=23"></script>
-  <script src="crossfade.js?v=23"></script>
-  <script src="app.js?v=23"></script>
+  <script src="state.js?v=26"></script>
+  <script src="loop.js?v=26"></script>
+  <script src="app.js?v=26"></script>
 </body>
 </html>
