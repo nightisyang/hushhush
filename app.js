@@ -356,8 +356,10 @@ function updatePlayUI(state) {
 }
 
 var statusTimer = null;
+var statusTarget = null;
 function setStatus(text) {
-  if (statusEl.textContent === text) return;
+  if (text === statusTarget) return;
+  statusTarget = text;
   clearTimeout(statusTimer);
   statusEl.classList.add('fade-out');
   statusTimer = setTimeout(function() {
@@ -723,7 +725,10 @@ presetsEl.addEventListener("click", (e) => {
     const customs = getCustomPresets().filter(c => c.name !== p.name);
     saveCustomPresetsToStorage(customs);
     if (activePreset === p.name) activePreset = null;
-    renderPresets();
+    btn.style.transition = 'opacity 0.2s, transform 0.2s';
+    btn.style.opacity = '0';
+    btn.style.transform = 'scale(0.8)';
+    setTimeout(() => renderPresets(), 200);
     return;
   }
   applyPreset(p);
@@ -781,12 +786,19 @@ dialogOverlay.addEventListener("click", (e) => {
 function clearTimer() {
   if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
   timerEnd = null;
-  timerDisplayEl.textContent = "";
+  if (timerDisplayEl.textContent) {
+    timerDisplayEl.classList.add('fade-out');
+    setTimeout(() => { timerDisplayEl.textContent = ""; timerDisplayEl.classList.remove('fade-out'); }, 300);
+  }
   timerBtns.forEach(b => b.classList.toggle("active", b.dataset.min === "0"));
 }
 
 function setTimer(minutes) {
-  clearTimer();
+  if (timerInterval) { clearInterval(timerInterval); timerInterval = null; }
+  timerEnd = null;
+  timerDisplayEl.textContent = "";
+  timerDisplayEl.classList.remove('fade-out');
+  timerBtns.forEach(b => b.classList.toggle("active", b.dataset.min === "0"));
   if (minutes <= 0) return;
   if (machine.phase === 'idle') return;
 
@@ -902,10 +914,11 @@ restoreSettings();
 renderPresets();
 [volSlider, lowCutSlider, highCutSlider, modSlider, modSpeedSlider].forEach(updateSliderFill);
 if (activePreset) {
-  statusEl.textContent = "Ready \u00b7 " + activePreset;
+  statusTarget = "Ready \u00b7 " + activePreset;
 } else {
-  statusEl.textContent = "Ready \u00b7 " + activeColor.charAt(0).toUpperCase() + activeColor.slice(1) + " noise";
+  statusTarget = "Ready \u00b7 " + activeColor.charAt(0).toUpperCase() + activeColor.slice(1) + " noise";
 }
+statusEl.textContent = statusTarget;
 document.getElementById('timerRow').classList.add('disabled');
 
 // Customize toggle
