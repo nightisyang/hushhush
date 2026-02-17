@@ -792,9 +792,25 @@ qrOverlay.addEventListener("click", (e) => {
 });
 
 document.getElementById("installBtn").addEventListener("click", () => {
-  const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-  document.getElementById("chromeSteps")?.classList.toggle("highlight", !isSafari);
-  document.getElementById("safariSteps")?.classList.toggle("highlight", isSafari);
+  const ua = navigator.userAgent;
+  const isIOS = /iPad|iPhone|iPod/.test(ua) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const isAndroid = /Android/.test(ua);
+  const isSafari = /Safari/.test(ua) && !/CriOS/.test(ua) && !/Chrome/.test(ua);
+
+  const chromeAndroid = document.getElementById("chromeAndroidSteps");
+  const chromeIOS = document.getElementById("chromeiOSSteps");
+  const safari = document.getElementById("safariSteps");
+
+  // Show sections relevant to the platform
+  chromeAndroid.style.display = !isIOS ? '' : 'none';
+  chromeIOS.style.display = isIOS ? '' : 'none';
+  safari.style.display = isIOS ? '' : 'none';
+
+  // Highlight the browser they're currently using
+  chromeAndroid.classList.toggle("highlight", !isIOS && !isSafari);
+  chromeIOS.classList.toggle("highlight", isIOS && !isSafari);
+  safari.classList.toggle("highlight", isSafari);
+
   installOverlay.classList.add("open");
 });
 
@@ -869,4 +885,44 @@ customizeToggle.addEventListener('click', function() {
   var isOpen = advancedControls.classList.toggle('open');
   customizeToggle.classList.toggle('open');
   localStorage.setItem('hushhush_customize', isOpen ? 'open' : '');
+});
+
+// ===== Page Visibility — pause animations & timer when screen off =====
+let timerRemaining = null;
+
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) {
+    // Pause CSS animations via class on body
+    document.body.classList.add('screen-off');
+
+    // Cancel any running slider animations (rAF)
+    for (const [, id] of sliderAnimations) cancelAnimationFrame(id);
+    sliderAnimations.clear();
+
+    // Pause timer interval to avoid 1s CPU wakeups — store remaining time
+    if (timerInterval && timerEnd) {
+      timerRemaining = timerEnd - Date.now();
+      clearInterval(timerInterval);
+      timerInterval = null;
+    }
+  } else {
+    document.body.classList.remove('screen-off');
+
+    // Restore timer from remaining time
+    if (timerRemaining != null && timerRemaining > 0 && machine.phase !== 'idle') {
+      timerEnd = Date.now() + timerRemaining;
+      updateTimerDisplay(false);
+      timerInterval = setInterval(() => {
+        if (Date.now() >= timerEnd) {
+          dispatch('STOP');
+          return;
+        }
+        updateTimerDisplay(false);
+      }, 1000);
+    } else if (timerRemaining != null && timerRemaining <= 0 && machine.phase !== 'idle') {
+      // Timer expired while screen was off
+      dispatch('STOP');
+    }
+    timerRemaining = null;
+  }
 });
