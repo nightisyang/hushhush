@@ -8,11 +8,27 @@
   <meta name="color-scheme" content="dark">
   <link rel="icon" type="image/png" sizes="96x96" href="icon-96.png">
   <link rel="apple-touch-icon" href="icon-256.png">
+  <link rel="manifest" href="manifest.json">
   <meta name="format-detection" content="telephone=no">
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link rel="preload" href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" as="style">
-  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <style>
+    /* Self-hosted Plus Jakarta Sans — eliminates external font requests */
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      font-style: normal;
+      font-weight: 300 600;
+      font-display: swap;
+      src: url(fonts/plus-jakarta-sans-latin.woff2) format('woff2');
+      unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+    }
+    @font-face {
+      font-family: 'Plus Jakarta Sans';
+      font-style: normal;
+      font-weight: 300 600;
+      font-display: swap;
+      src: url(fonts/plus-jakarta-sans-latin-ext.woff2) format('woff2');
+      unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+    }
+  </style>
   <style>
     :root {
       --bg: #0f1219;
@@ -65,6 +81,7 @@
       opacity: 0;
       transition: opacity 1.5s ease;
       z-index: -1;
+      will-change: opacity;
     }
     body.playing::before {
       opacity: 1;
@@ -151,6 +168,7 @@
       opacity: 0;
       transition: opacity 0.6s;
       pointer-events: none;
+      will-change: transform, opacity;
     }
     .play-btn:hover { border-color: var(--accent); }
     .play-btn:active { transform: scale(0.92); }
@@ -563,6 +581,15 @@
       vertical-align: -3px;
       fill: var(--accent);
     }
+
+    /* Pause all animations when screen is off to save battery */
+    body.screen-off,
+    body.screen-off *,
+    body.screen-off *::before,
+    body.screen-off *::after {
+      animation-play-state: paused !important;
+      transition: none !important;
+    }
   </style>
 </head>
 <body>
@@ -676,10 +703,10 @@
     <div class="dialog" style="width: 320px;">
       <h3>Add to Home Screen</h3>
       <div class="install-steps">
-        <div class="platform" id="chromeSteps">
+        <div class="platform" id="chromeAndroidSteps" style="display:none">
           <h4>
             <svg class="step-icon" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 3a5 5 0 0 1 4.7 3.25H12a5 5 0 0 0-4.33 2.5L5.46 7.2A7.97 7.97 0 0 1 12 5zm-7.9 7.5l2.2-3.81A5 5 0 0 0 12 17l-2.21 3.83A8 8 0 0 1 4.1 12.5zM12 19a5 5 0 0 1-1.44-.22l2.2-3.81a5 5 0 0 0 4.33-2.5l2.22 3.83A7.97 7.97 0 0 1 12 19z"/></svg>
-            Chrome (Recommended)
+            Chrome
           </h4>
           <ol>
             <li>Open in <strong>Chrome</strong></li>
@@ -688,7 +715,19 @@
             <li>Lock screen controls + artwork will work</li>
           </ol>
         </div>
-        <div class="platform" id="safariSteps">
+        <div class="platform" id="chromeiOSSteps" style="display:none">
+          <h4>
+            <svg class="step-icon" viewBox="0 0 24 24"><path d="M12 2a10 10 0 1 0 0 20 10 10 0 0 0 0-20zm0 3a5 5 0 0 1 4.7 3.25H12a5 5 0 0 0-4.33 2.5L5.46 7.2A7.97 7.97 0 0 1 12 5zm-7.9 7.5l2.2-3.81A5 5 0 0 0 12 17l-2.21 3.83A8 8 0 0 1 4.1 12.5zM12 19a5 5 0 0 1-1.44-.22l2.2-3.81a5 5 0 0 0 4.33-2.5l2.22 3.83A7.97 7.97 0 0 1 12 19z"/></svg>
+            Chrome (Recommended)
+          </h4>
+          <ol>
+            <li>Open in <strong>Chrome</strong></li>
+            <li>Tap <svg class="step-icon" viewBox="0 0 24 24"><path d="M16 5l-1.42 1.42-1.59-1.59V16h-2V4.83L9.42 6.42 8 5l4-4 4 4zm4 5v11c0 1.1-.9 2-2 2H6c-1.11 0-2-.9-2-2V10c0-1.11.89-2 2-2h3v2H6v11h12V10h-3V8h3c1.1 0 2 .89 2 2z"/></svg> <strong>Share</strong></li>
+            <li>Tap <strong>"Add to Home Screen"</strong></li>
+            <li>Lock screen controls + artwork will work</li>
+          </ol>
+        </div>
+        <div class="platform" id="safariSteps" style="display:none">
           <h4>
             <svg class="step-icon" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1.27 15.58l-1.54-5.77 5.77 1.54-1.54 5.77L12 14.5l-1.27 3.08zM12 13a1 1 0 1 1 0-2 1 1 0 0 1 0 2zm1.27-6.58l1.54 5.77-5.77-1.54 1.54-5.77L12 9.5l1.27-3.08z"/></svg>
             Safari
@@ -710,8 +749,13 @@
   <!-- Silent audio element keeps MediaSession/lock screen alive -->
   <audio id="silentAudio" playsinline preload="auto" loop></audio>
 
-  <script src="state.js?v=26"></script>
-  <script src="loop.js?v=26"></script>
-  <script src="app.js?v=26"></script>
+  <script src="state.js?v=29"></script>
+  <script src="loop.js?v=29"></script>
+  <script src="app.js?v=29"></script>
+  <script>
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js');
+  }
+  </script>
 </body>
 </html>
