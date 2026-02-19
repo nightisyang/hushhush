@@ -39,6 +39,7 @@
       background: var(--bg);
       background-image: radial-gradient(ellipse at 50% 25%, #151c2c 0%, var(--bg) 70%);
       color: var(--text);
+      min-height: 100vh;
       min-height: 100dvh;
       display: flex;
       align-items: flex-start;
@@ -55,7 +56,7 @@
     }
     body::before {
       content: '';
-      position: fixed; inset: 0;
+      position: fixed; top: 0; right: 0; bottom: 0; left: 0;
       background: radial-gradient(ellipse at 50% 35%,
         rgba(20, 31, 40, 0.4) 0%,
         transparent 35%,
@@ -144,7 +145,7 @@
     .play-btn::before {
       content: '';
       position: absolute;
-      inset: -24px;
+      top: -24px; right: -24px; bottom: -24px; left: -24px;
       border-radius: 50%;
       background: radial-gradient(circle, var(--accent-glow-strong), transparent 70%);
       opacity: 0;
@@ -427,7 +428,7 @@
 
     /* Dialog / Modal overlay */
     .dialog-overlay {
-      position: fixed; inset: 0;
+      position: fixed; top: 0; right: 0; bottom: 0; left: 0;
       background: rgba(8, 10, 16, 0.7);
       backdrop-filter: blur(12px);
       -webkit-backdrop-filter: blur(12px);
