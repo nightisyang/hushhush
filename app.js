@@ -53,6 +53,7 @@ let loadedSettingsKey = null;
 let activeColor = "white";
 let cachedVolume = 0.3;
 let playingSettings = null;
+let suspendedWhilePlaying = false;
 
 // Audio source tracking (AudioBufferSourceNode is one-shot — new node per play/resume)
 let activeSource = null;
@@ -95,10 +96,18 @@ function ensureLiveContext() {
   masterGain.connect(liveCtx.destination);
   silentAudio.src = URL.createObjectURL(createSilentBlob());
   silentAudio.load();
+
+  liveCtx.onstatechange = () => {
+    if (liveCtx.state === 'suspended' && (machine.phase === 'playing' || machine.phase === 'regenerating')) {
+      suspendedWhilePlaying = true;
+      dispatch('AUDIO_CONTEXT_SUSPENDED');
+    }
+  };
 }
 
 function resumeLiveContext() {
-  if (liveCtx && liveCtx.state === 'suspended') liveCtx.resume();
+  if (liveCtx && liveCtx.state === 'suspended') return liveCtx.resume();
+  return Promise.resolve();
 }
 
 // ===== Buffer Cache =====
@@ -434,6 +443,7 @@ playBtn.addEventListener("click", () => {
   if (machine.phase !== 'idle') {
     dispatch('STOP');
   } else {
+    suspendedWhilePlaying = false;
     // Start silent audio immediately (user gesture required on iOS)
     silentAudio.play().catch(function(){});
     const key = settingsKey(getSettings());
@@ -446,6 +456,7 @@ if (hasMediaSession) {
   navigator.mediaSession.setActionHandler("play", () => {
     ensureLiveContext();
     resumeLiveContext();
+    suspendedWhilePlaying = false;
     if (machine.phase === 'idle') {
       silentAudio.play().catch(function(){});
       const key = settingsKey(getSettings());
@@ -768,6 +779,36 @@ document.getElementById("timerRow").addEventListener("click", (e) => {
   const btn = e.target.closest(".timer-btn");
   if (!btn) return;
   setTimer(parseInt(btn.dataset.min));
+});
+
+// ===== AudioContext Recovery =====
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !liveCtx) return;
+
+  if (suspendedWhilePlaying && machine.phase === 'idle') {
+    // Browser suspended AudioContext while we were playing — auto-resume
+    suspendedWhilePlaying = false;
+    resumeLiveContext().then(() => {
+      silentAudio.play().catch(function(){});
+      const key = settingsKey(getSettings());
+      dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
+    });
+  } else if (machine.phase === 'playing' || machine.phase === 'regenerating') {
+    // Belt-and-suspenders: resume context if still in playing state
+    resumeLiveContext();
+  }
+});
+
+window.addEventListener('pageshow', (e) => {
+  if (!e.persisted || !liveCtx) return;
+  // Page restored from bfcache — AudioContext may be broken
+  resumeLiveContext();
+  if (suspendedWhilePlaying && machine.phase === 'idle') {
+    suspendedWhilePlaying = false;
+    silentAudio.play().catch(function(){});
+    const key = settingsKey(getSettings());
+    dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
+  }
 });
 
 // ===== Audio Session API =====

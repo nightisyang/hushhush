@@ -39,6 +39,8 @@ var HushState = (function() {
     if (phase === 'regenerating') {
       if (event === 'STOP' || event === 'PLAY')
         return { machine: { phase: 'idle', dirty: false }, actions: ['STOP_AUDIO', 'UI_STOPPED'] };
+      if (event === 'AUDIO_CONTEXT_SUSPENDED')
+        return { machine: { phase: 'idle', dirty: false }, actions: ['STOP_AUDIO', 'UI_STOPPED'] };
       if (event === 'SETTINGS_CHANGED')
         return { machine: { phase: 'regenerating', dirty: true }, actions: [] };
       if (event === 'GEN_COMPLETE') {
@@ -56,6 +58,8 @@ var HushState = (function() {
 
     if (phase === 'playing') {
       if (event === 'STOP' || event === 'PLAY')
+        return { machine: { phase: 'idle', dirty: false }, actions: ['STOP_AUDIO', 'UI_STOPPED'] };
+      if (event === 'AUDIO_CONTEXT_SUSPENDED')
         return { machine: { phase: 'idle', dirty: false }, actions: ['STOP_AUDIO', 'UI_STOPPED'] };
       if (event === 'SETTINGS_CHANGED')
         return { machine: { phase: 'regenerating', dirty: false }, actions: ['UI_LOADING', 'GENERATE'] };
