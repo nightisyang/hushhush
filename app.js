@@ -106,7 +106,7 @@ function ensureLiveContext() {
 }
 
 function resumeLiveContext() {
-  if (liveCtx && liveCtx.state === 'suspended') return liveCtx.resume();
+  if (liveCtx && (liveCtx.state === 'suspended' || liveCtx.state === 'interrupted')) return liveCtx.resume();
   return Promise.resolve();
 }
 
@@ -115,6 +115,20 @@ const bufferCache = new Map();
 
 function settingsKey(s) {
   return `${s.color}|${s.lowCut}|${s.highCut}|${s.mod}|${s.modSpeed}`;
+}
+
+// ===== Offline Rendering Compat (iOS 12 webkitOfflineAudioContext) =====
+// iOS 12's webkitOfflineAudioContext.startRendering() returns undefined instead
+// of a Promise — it only supports the legacy oncomplete callback API.
+// This shim handles both the modern Promise-based and legacy callback-based APIs.
+function renderOffline(offCtx) {
+  return new Promise(function(resolve, reject) {
+    offCtx.oncomplete = function(e) { resolve(e.renderedBuffer); };
+    var result = offCtx.startRendering();
+    if (result && typeof result.then === 'function') {
+      result.then(resolve, reject);
+    }
+  });
 }
 
 // ===== Noise Sample Generation =====
@@ -230,7 +244,7 @@ async function generateNoise(settings) {
   node.connect(offCtx.destination);
   src.start();
 
-  const rendered = await offCtx.startRendering();
+  const rendered = await renderOffline(offCtx);
   const blended = SeamlessLoop.blend(rendered.getChannelData(0), WAV_SAMPLES, FADE_SAMPLES);
 
   // Create AudioBuffer from blended samples (used directly by AudioBufferSourceNode)
@@ -437,9 +451,9 @@ function executeLoadAudio() {
   dispatch('AUDIO_READY');
 }
 
-playBtn.addEventListener("click", () => {
+playBtn.addEventListener("click", async () => {
   ensureLiveContext();
-  resumeLiveContext();
+  await resumeLiveContext();
   if (machine.phase !== 'idle') {
     dispatch('STOP');
   } else {
@@ -453,9 +467,9 @@ playBtn.addEventListener("click", () => {
 
 // ===== Media Session =====
 if (hasMediaSession) {
-  navigator.mediaSession.setActionHandler("play", () => {
+  navigator.mediaSession.setActionHandler("play", async () => {
     ensureLiveContext();
-    resumeLiveContext();
+    await resumeLiveContext();
     suspendedWhilePlaying = false;
     if (machine.phase === 'idle') {
       silentAudio.play().catch(function(){});
@@ -799,10 +813,10 @@ document.addEventListener('visibilitychange', () => {
   }
 });
 
-window.addEventListener('pageshow', (e) => {
+window.addEventListener('pageshow', async (e) => {
   if (!e.persisted || !liveCtx) return;
   // Page restored from bfcache — AudioContext may be broken
-  resumeLiveContext();
+  await resumeLiveContext();
   if (suspendedWhilePlaying && machine.phase === 'idle') {
     suspendedWhilePlaying = false;
     silentAudio.play().catch(function(){});
