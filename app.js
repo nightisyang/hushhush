@@ -98,7 +98,7 @@ function ensureLiveContext() {
   silentAudio.load();
 
   liveCtx.onstatechange = () => {
-    if (liveCtx.state === 'suspended' && (machine.phase === 'playing' || machine.phase === 'regenerating')) {
+    if ((liveCtx.state === 'suspended' || liveCtx.state === 'interrupted') && (machine.phase === 'playing' || machine.phase === 'regenerating')) {
       suspendedWhilePlaying = true;
       dispatch('AUDIO_CONTEXT_SUSPENDED');
     }
@@ -802,11 +802,11 @@ document.addEventListener('visibilitychange', () => {
   if (suspendedWhilePlaying && machine.phase === 'idle') {
     // Browser suspended AudioContext while we were playing — auto-resume
     suspendedWhilePlaying = false;
-    resumeLiveContext().then(() => {
+    resumeLiveContext().then(function() {
       silentAudio.play().catch(function(){});
       const key = settingsKey(getSettings());
       dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
-    });
+    }).catch(function(){});
   } else if (machine.phase === 'playing' || machine.phase === 'regenerating') {
     // Belt-and-suspenders: resume context if still in playing state
     resumeLiveContext();
@@ -848,8 +848,10 @@ qrOverlay.addEventListener("click", (e) => {
 
 document.getElementById("installBtn").addEventListener("click", () => {
   const isSafari = /Safari/.test(navigator.userAgent) && !/Chrome/.test(navigator.userAgent);
-  document.getElementById("chromeSteps")?.classList.toggle("highlight", !isSafari);
-  document.getElementById("safariSteps")?.classList.toggle("highlight", isSafari);
+  var chromeSteps = document.getElementById("chromeSteps");
+  var safariSteps = document.getElementById("safariSteps");
+  if (chromeSteps) chromeSteps.classList.toggle("highlight", !isSafari);
+  if (safariSteps) safariSteps.classList.toggle("highlight", isSafari);
   installOverlay.classList.add("open");
 });
 
