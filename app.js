@@ -53,6 +53,7 @@ let loadedSettingsKey = null;
 let activeColor = "white";
 let cachedVolume = 0.3;
 let playingSettings = null;
+let suspendedWhilePlaying = false;
 
 // Audio source tracking (AudioBufferSourceNode is one-shot — new node per play/resume)
 let activeSource = null;
@@ -95,10 +96,18 @@ function ensureLiveContext() {
   masterGain.connect(liveCtx.destination);
   silentAudio.src = URL.createObjectURL(createSilentBlob());
   silentAudio.load();
+
+  liveCtx.onstatechange = () => {
+    if ((liveCtx.state === 'suspended' || liveCtx.state === 'interrupted') && (machine.phase === 'playing' || machine.phase === 'regenerating')) {
+      suspendedWhilePlaying = true;
+      dispatch('AUDIO_CONTEXT_SUSPENDED');
+    }
+  };
 }
 
 function resumeLiveContext() {
-  if (liveCtx && liveCtx.state === 'suspended') liveCtx.resume();
+  if (liveCtx && (liveCtx.state === 'suspended' || liveCtx.state === 'interrupted')) return liveCtx.resume();
+  return Promise.resolve();
 }
 
 // ===== Buffer Cache =====
@@ -106,6 +115,20 @@ const bufferCache = new Map();
 
 function settingsKey(s) {
   return `${s.color}|${s.lowCut}|${s.highCut}|${s.mod}|${s.modSpeed}`;
+}
+
+// ===== Offline Rendering Compat (iOS 12 webkitOfflineAudioContext) =====
+// iOS 12's webkitOfflineAudioContext.startRendering() returns undefined instead
+// of a Promise — it only supports the legacy oncomplete callback API.
+// This shim handles both the modern Promise-based and legacy callback-based APIs.
+function renderOffline(offCtx) {
+  return new Promise(function(resolve, reject) {
+    offCtx.oncomplete = function(e) { resolve(e.renderedBuffer); };
+    var result = offCtx.startRendering();
+    if (result && typeof result.then === 'function') {
+      result.then(resolve, reject);
+    }
+  });
 }
 
 // ===== Noise Sample Generation =====
@@ -221,7 +244,7 @@ async function generateNoise(settings) {
   node.connect(offCtx.destination);
   src.start();
 
-  const rendered = await offCtx.startRendering();
+  const rendered = await renderOffline(offCtx);
   const blended = SeamlessLoop.blend(rendered.getChannelData(0), WAV_SAMPLES, FADE_SAMPLES);
 
   // Create AudioBuffer from blended samples (used directly by AudioBufferSourceNode)
@@ -428,12 +451,13 @@ function executeLoadAudio() {
   dispatch('AUDIO_READY');
 }
 
-playBtn.addEventListener("click", () => {
+playBtn.addEventListener("click", async () => {
   ensureLiveContext();
-  resumeLiveContext();
+  await resumeLiveContext();
   if (machine.phase !== 'idle') {
     dispatch('STOP');
   } else {
+    suspendedWhilePlaying = false;
     // Start silent audio immediately (user gesture required on iOS)
     silentAudio.play().catch(function(){});
     const key = settingsKey(getSettings());
@@ -443,9 +467,10 @@ playBtn.addEventListener("click", () => {
 
 // ===== Media Session =====
 if (hasMediaSession) {
-  navigator.mediaSession.setActionHandler("play", () => {
+  navigator.mediaSession.setActionHandler("play", async () => {
     ensureLiveContext();
-    resumeLiveContext();
+    await resumeLiveContext();
+    suspendedWhilePlaying = false;
     if (machine.phase === 'idle') {
       silentAudio.play().catch(function(){});
       const key = settingsKey(getSettings());
@@ -768,6 +793,36 @@ document.getElementById("timerRow").addEventListener("click", (e) => {
   const btn = e.target.closest(".timer-btn");
   if (!btn) return;
   setTimer(parseInt(btn.dataset.min));
+});
+
+// ===== AudioContext Recovery =====
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible' || !liveCtx) return;
+
+  if (suspendedWhilePlaying && machine.phase === 'idle') {
+    // Browser suspended AudioContext while we were playing — auto-resume
+    suspendedWhilePlaying = false;
+    resumeLiveContext().then(function() {
+      silentAudio.play().catch(function(){});
+      const key = settingsKey(getSettings());
+      dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
+    }).catch(function(){});
+  } else if (machine.phase === 'playing' || machine.phase === 'regenerating') {
+    // Belt-and-suspenders: resume context if still in playing state
+    resumeLiveContext();
+  }
+});
+
+window.addEventListener('pageshow', async (e) => {
+  if (!e.persisted || !liveCtx) return;
+  // Page restored from bfcache — AudioContext may be broken
+  await resumeLiveContext();
+  if (suspendedWhilePlaying && machine.phase === 'idle') {
+    suspendedWhilePlaying = false;
+    silentAudio.play().catch(function(){});
+    const key = settingsKey(getSettings());
+    dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
+  }
 });
 
 // ===== Audio Session API =====

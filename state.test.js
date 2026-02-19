@@ -434,6 +434,58 @@ describe('HushState', () => {
       assert.deepEqual(r.actions, ['STOP_AUDIO', 'UI_STOPPED']);
     });
 
+    it('AudioContext suspension while playing transitions to idle', () => {
+      let m = create();
+      m = send(m, 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      assert.equal(m.phase, 'playing');
+
+      const r = send(m, 'AUDIO_CONTEXT_SUSPENDED');
+      assert.equal(r.machine.phase, 'idle');
+      assert.deepEqual(r.actions, ['STOP_AUDIO', 'UI_STOPPED']);
+    });
+
+    it('AudioContext suspension during regenerating transitions to idle', () => {
+      let m = create();
+      m = send(m, 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      m = send(m, 'SETTINGS_CHANGED').machine;
+      assert.equal(m.phase, 'regenerating');
+
+      const r = send(m, 'AUDIO_CONTEXT_SUSPENDED');
+      assert.equal(r.machine.phase, 'idle');
+      assert.deepEqual(r.actions, ['STOP_AUDIO', 'UI_STOPPED']);
+    });
+
+    it('AudioContext suspension recovery: suspend → idle → PLAY_CACHED → playing', () => {
+      let m = create();
+      m = send(m, 'PLAY').machine;
+      m = send(m, 'AUDIO_READY').machine;
+      assert.equal(m.phase, 'playing');
+
+      // Browser suspends AudioContext
+      m = send(m, 'AUDIO_CONTEXT_SUSPENDED').machine;
+      assert.equal(m.phase, 'idle');
+
+      // User taps lock screen play → fast resume via PLAY_CACHED
+      const r = send(m, 'PLAY_CACHED');
+      assert.equal(r.machine.phase, 'playing');
+      assert.deepEqual(r.actions, ['RESUME_AUDIO', 'UI_PLAYING']);
+    });
+
+    it('AudioContext suspension is no-op in idle and generating', () => {
+      // idle
+      let r = send(create(), 'AUDIO_CONTEXT_SUSPENDED');
+      assert.equal(r.machine.phase, 'idle');
+      assert.deepEqual(r.actions, []);
+
+      // generating
+      let m = send(create(), 'PLAY').machine;
+      r = send(m, 'AUDIO_CONTEXT_SUSPENDED');
+      assert.equal(r.machine.phase, 'generating');
+      assert.deepEqual(r.actions, []);
+    });
+
     it('stop + replay race: old generation stale in new generating state', () => {
       let m = create();
 
