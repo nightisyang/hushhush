@@ -38,6 +38,9 @@ const modSpeedValEl  = document.getElementById("modSpeedVal");
 const colorBtns      = document.querySelectorAll(".color-btn");
 const timerBtns      = document.querySelectorAll(".timer-btn");
 const hasMediaSession = 'mediaSession' in navigator;
+const hasMediaMetadata = typeof window.MediaMetadata === 'function';
+const RECOVERY_RETRY_MS = 750;
+const RECOVERY_MAX_ATTEMPTS = 8;
 
 // ===== State =====
 let machine = HushState.create();
@@ -62,6 +65,9 @@ let activeBuffer = null;
 let fadingOutSource = null;
 let fadingOutGain = null;
 let activeTransition = null;
+let recoveryTimer = null;
+let recoveryAttempts = 0;
+let recoveryInFlight = false;
 
 // ===== Live AudioContext =====
 let liveCtx = null;
@@ -98,9 +104,12 @@ function ensureLiveContext() {
   silentAudio.load();
 
   liveCtx.onstatechange = () => {
-    if ((liveCtx.state === 'suspended' || liveCtx.state === 'interrupted') && (machine.phase === 'playing' || machine.phase === 'regenerating')) {
-      suspendedWhilePlaying = true;
-      dispatch('AUDIO_CONTEXT_SUSPENDED');
+    if ((liveCtx.state === 'suspended' || liveCtx.state === 'interrupted') && isPlaybackActivePhase()) {
+      beginInterruptionRecovery();
+      return;
+    }
+    if (liveCtx.state === 'running' && suspendedWhilePlaying) {
+      finishInterruptionRecovery();
     }
   };
 }
@@ -108,6 +117,89 @@ function ensureLiveContext() {
 function resumeLiveContext() {
   if (liveCtx && (liveCtx.state === 'suspended' || liveCtx.state === 'interrupted')) return liveCtx.resume();
   return Promise.resolve();
+}
+
+function isPlaybackActivePhase() {
+  return machine.phase === 'playing' || machine.phase === 'regenerating';
+}
+
+function playSilentSessionAudio() {
+  const result = silentAudio.play();
+  if (result && typeof result.catch === 'function') {
+    return result.catch(function(){});
+  }
+  return Promise.resolve();
+}
+
+function clearInterruptionRecovery() {
+  if (recoveryTimer) {
+    clearTimeout(recoveryTimer);
+    recoveryTimer = null;
+  }
+  recoveryAttempts = 0;
+  recoveryInFlight = false;
+}
+
+function finishInterruptionRecovery() {
+  suspendedWhilePlaying = false;
+  clearInterruptionRecovery();
+  if (!isPlaybackActivePhase() || activeTransition) return;
+  if (timerEnd) {
+    updateTimerDisplay(true);
+  } else {
+    setStatus('Playing');
+  }
+}
+
+async function runInterruptionRecovery() {
+  if (recoveryInFlight) return;
+  recoveryInFlight = true;
+  try {
+    if (!liveCtx || !isPlaybackActivePhase()) {
+      clearInterruptionRecovery();
+      return;
+    }
+    if (liveCtx.state === 'running') {
+      finishInterruptionRecovery();
+      return;
+    }
+
+    try {
+      await resumeLiveContext();
+      await playSilentSessionAudio();
+    } catch (e) {}
+
+    if (!liveCtx || !isPlaybackActivePhase()) {
+      clearInterruptionRecovery();
+      return;
+    }
+    if (liveCtx.state === 'running') {
+      finishInterruptionRecovery();
+      return;
+    }
+
+    recoveryAttempts += 1;
+    if (recoveryAttempts >= RECOVERY_MAX_ATTEMPTS) {
+      clearInterruptionRecovery();
+      dispatch('AUDIO_CONTEXT_SUSPENDED');
+      return;
+    }
+
+    recoveryTimer = setTimeout(function() {
+      recoveryTimer = null;
+      runInterruptionRecovery();
+    }, RECOVERY_RETRY_MS);
+  } finally {
+    recoveryInFlight = false;
+  }
+}
+
+function beginInterruptionRecovery() {
+  if (!liveCtx || !isPlaybackActivePhase()) return;
+  suspendedWhilePlaying = true;
+  if (!activeTransition && !timerEnd) setStatus('Reconnecting audio\u2026');
+  if (recoveryTimer || recoveryInFlight) return;
+  runInterruptionRecovery();
 }
 
 // ===== Buffer Cache =====
@@ -320,6 +412,8 @@ function executeActions(actions) {
   for (const action of actions) {
     switch (action) {
       case 'STOP_AUDIO':
+        clearInterruptionRecovery();
+        suspendedWhilePlaying = false;
         stopSource(activeSource);
         activeSource = null;
         if (activeSourceGain) { activeSourceGain.disconnect(); activeSourceGain = null; }
@@ -331,11 +425,12 @@ function executeActions(actions) {
         break;
       case 'UI_LOADING':
         updatePlayUI('loading');
+        setMediaPlaybackState(machine.phase === 'regenerating' ? 'playing' : 'paused');
         break;
       case 'UI_PLAYING':
         updatePlayUI('playing');
         playingSettings = pendingSettings || getSettings();
-        updateMediaSession(playingSettings);
+        updateMediaSession(playingSettings, 'playing');
         if (activeTransition) {
           var name = activePreset || playingSettings.color.charAt(0).toUpperCase() + playingSettings.color.slice(1) + ' noise';
           setStatus('Switching to ' + name + '\u2026');
@@ -346,9 +441,9 @@ function executeActions(actions) {
       case 'UI_STOPPED':
         updatePlayUI('stopped');
         setStatus('Paused');
+        updateMediaSession(playingSettings || pendingSettings || getSettings(), 'paused');
         playingSettings = null;
         clearTimer();
-        if (hasMediaSession) navigator.mediaSession.playbackState = 'paused';
         break;
       case 'GENERATE':
         executeGeneration();
@@ -381,6 +476,7 @@ function executeActions(actions) {
           activeSource = startSource(pendingBuffer, activeSourceGain);
           activeBuffer = pendingBuffer;
           loadedSettingsKey = settingsKey(pendingSettings);
+          playSilentSessionAudio();
 
           // After fade: clean up old source + update status
           var oldSrc = fadingOutSource;
@@ -399,7 +495,7 @@ function executeActions(actions) {
             }
           }, FADE * 1000);
 
-          updateMediaSession(pendingSettings || getSettings());
+          updateMediaSession(pendingSettings || getSettings(), 'playing');
         } else {
           // Fresh play
           activeSourceGain = liveCtx.createGain();
@@ -408,7 +504,8 @@ function executeActions(actions) {
           activeSource = startSource(pendingBuffer, activeSourceGain);
           activeBuffer = pendingBuffer;
           loadedSettingsKey = settingsKey(pendingSettings);
-          updateMediaSession(pendingSettings || getSettings());
+          playSilentSessionAudio();
+          updateMediaSession(pendingSettings || getSettings(), 'playing');
         }
         pendingRegen = false;
         break;
@@ -417,7 +514,8 @@ function executeActions(actions) {
         activeSourceGain.gain.value = 1;
         activeSourceGain.connect(masterGain);
         activeSource = startSource(activeBuffer, activeSourceGain);
-        updateMediaSession(getSettings());
+        playSilentSessionAudio();
+        updateMediaSession(getSettings(), 'playing');
         break;
       case 'SHOW_ERROR':
         setStatus('Error: ' + (pendingError ? pendingError.message : 'Unknown'));
@@ -453,38 +551,70 @@ function executeLoadAudio() {
 
 playBtn.addEventListener("click", async () => {
   ensureLiveContext();
+  // iOS requires media playback to start synchronously within user activation.
+  // Start silent session audio before any await so lock-screen controls can attach.
+  const silentPlay = playSilentSessionAudio();
   await resumeLiveContext();
+  await silentPlay;
   if (machine.phase !== 'idle') {
     dispatch('STOP');
   } else {
     suspendedWhilePlaying = false;
-    // Start silent audio immediately (user gesture required on iOS)
-    silentAudio.play().catch(function(){});
+    clearInterruptionRecovery();
     const key = settingsKey(getSettings());
     dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
   }
 });
 
 // ===== Media Session =====
+function setMediaActionHandlerSafe(action, handler) {
+  if (!hasMediaSession) return;
+  try {
+    navigator.mediaSession.setActionHandler(action, handler);
+  } catch (e) {}
+}
+
+function setMediaPlaybackState(state) {
+  if (!hasMediaSession) return;
+  try {
+    navigator.mediaSession.playbackState = state;
+  } catch (e) {}
+}
+
 if (hasMediaSession) {
-  navigator.mediaSession.setActionHandler("play", async () => {
+  setMediaActionHandlerSafe("play", async () => {
     ensureLiveContext();
+    // Keep this synchronous with the media action so iOS allows session playback.
+    const silentPlay = playSilentSessionAudio();
     await resumeLiveContext();
+    await silentPlay;
     suspendedWhilePlaying = false;
+    clearInterruptionRecovery();
     if (machine.phase === 'idle') {
-      silentAudio.play().catch(function(){});
       const key = settingsKey(getSettings());
       dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
+    } else if (liveCtx && liveCtx.state !== 'running' && isPlaybackActivePhase()) {
+      beginInterruptionRecovery();
     }
   });
-  navigator.mediaSession.setActionHandler("pause", () => { if (machine.phase !== 'idle') dispatch('STOP'); });
-  navigator.mediaSession.setActionHandler("stop", () => { if (machine.phase !== 'idle') dispatch('STOP'); });
-  navigator.mediaSession.setActionHandler("seekbackward", null);
-  navigator.mediaSession.setActionHandler("seekforward", null);
-  navigator.mediaSession.setActionHandler("seekto", null);
-  navigator.mediaSession.setActionHandler("previoustrack", null);
-  navigator.mediaSession.setActionHandler("nexttrack", null);
+  setMediaActionHandlerSafe("pause", () => { if (machine.phase !== 'idle') dispatch('STOP'); });
+  setMediaActionHandlerSafe("stop", () => { if (machine.phase !== 'idle') dispatch('STOP'); });
+  setMediaActionHandlerSafe("seekbackward", null);
+  setMediaActionHandlerSafe("seekforward", null);
+  setMediaActionHandlerSafe("seekto", null);
+  setMediaActionHandlerSafe("previoustrack", null);
+  setMediaActionHandlerSafe("nexttrack", null);
 }
+
+silentAudio.addEventListener('pause', () => {
+  if (!isPlaybackActivePhase()) return;
+  playSilentSessionAudio();
+});
+
+silentAudio.addEventListener('ended', () => {
+  if (!isPlaybackActivePhase()) return;
+  playSilentSessionAudio();
+});
 
 // Lock screen artwork — absolute HTTPS URLs required for iOS Now Playing
 const sessionArtwork = [
@@ -498,15 +628,19 @@ function getMediaTitle(settings) {
   return settings.color.charAt(0).toUpperCase() + settings.color.slice(1) + " Noise";
 }
 
-function updateMediaSession(settings) {
+function updateMediaSession(settings, playbackState) {
   if (!hasMediaSession) return;
-  navigator.mediaSession.metadata = new MediaMetadata({
-    title: getMediaTitle(settings),
-    artist: "HushHush",
-    album: "Baby Sleep",
-    artwork: sessionArtwork,
-  });
-  navigator.mediaSession.playbackState = "playing";
+  if (hasMediaMetadata) {
+    try {
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: getMediaTitle(settings),
+        artist: "HushHush",
+        album: "Baby Sleep",
+        artwork: sessionArtwork,
+      });
+    } catch (e) {}
+  }
+  if (playbackState) setMediaPlaybackState(playbackState);
 }
 
 // ===== UI: Color Buttons =====
@@ -562,6 +696,7 @@ function deactivatePreset() {
   activePreset = null;
   const active = presetsEl.querySelector(".preset-btn.active");
   if (active) active.classList.remove("active");
+  updateMediaSession(getSettings(), machine.phase === 'idle' ? 'paused' : 'playing');
 }
 
 // Shared handler: any setting change invalidates + regenerates if playing
@@ -569,6 +704,7 @@ function settingsChanged() {
   deactivatePreset();
   loadedSettingsKey = null;
   saveSettings();
+  updateMediaSession(getSettings(), machine.phase === 'idle' ? 'paused' : 'playing');
   if (machine.phase !== 'idle') dispatch('SETTINGS_CHANGED');
 }
 
@@ -577,6 +713,7 @@ function onFilterChange() {
   deactivatePreset();
   loadedSettingsKey = null;
   saveSettings();
+  updateMediaSession(getSettings(), machine.phase === 'idle' ? 'paused' : 'playing');
   if (machine.phase === 'idle') return;
   dispatch('SETTINGS_CHANGED');
 }
@@ -645,6 +782,7 @@ function applyPreset(preset) {
   loadedSettingsKey = null;
   renderPresets();
   saveSettings();
+  updateMediaSession(getSettings(), machine.phase === 'idle' ? 'paused' : 'playing');
   if (machine.phase !== 'idle') dispatch('SETTINGS_CHANGED');
 }
 
@@ -799,29 +937,50 @@ document.getElementById("timerRow").addEventListener("click", (e) => {
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible' || !liveCtx) return;
 
+  if (suspendedWhilePlaying && isPlaybackActivePhase()) {
+    beginInterruptionRecovery();
+    return;
+  }
+
   if (suspendedWhilePlaying && machine.phase === 'idle') {
     // Browser suspended AudioContext while we were playing — auto-resume
     suspendedWhilePlaying = false;
+    clearInterruptionRecovery();
     resumeLiveContext().then(function() {
-      silentAudio.play().catch(function(){});
+      playSilentSessionAudio();
       const key = settingsKey(getSettings());
       dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
     }).catch(function(){});
-  } else if (machine.phase === 'playing' || machine.phase === 'regenerating') {
+  } else if (isPlaybackActivePhase()) {
     // Belt-and-suspenders: resume context if still in playing state
-    resumeLiveContext();
+    resumeLiveContext().then(function() {
+      if (liveCtx.state !== 'running') beginInterruptionRecovery();
+    }).catch(function() {
+      beginInterruptionRecovery();
+    });
   }
 });
 
 window.addEventListener('pageshow', async (e) => {
   if (!e.persisted || !liveCtx) return;
   // Page restored from bfcache — AudioContext may be broken
-  await resumeLiveContext();
+  try {
+    await resumeLiveContext();
+  } catch (e) {}
+  if (suspendedWhilePlaying && isPlaybackActivePhase()) {
+    beginInterruptionRecovery();
+    return;
+  }
   if (suspendedWhilePlaying && machine.phase === 'idle') {
     suspendedWhilePlaying = false;
-    silentAudio.play().catch(function(){});
+    clearInterruptionRecovery();
+    playSilentSessionAudio();
     const key = settingsKey(getSettings());
     dispatch(key === loadedSettingsKey && activeBuffer ? 'PLAY_CACHED' : 'PLAY');
+    return;
+  }
+  if (isPlaybackActivePhase() && liveCtx.state !== 'running') {
+    beginInterruptionRecovery();
   }
 });
 
@@ -927,6 +1086,7 @@ if (activePreset) {
   statusTarget = "Ready \u00b7 " + activeColor.charAt(0).toUpperCase() + activeColor.slice(1) + " noise";
 }
 statusEl.textContent = statusTarget;
+updateMediaSession(getSettings(), 'paused');
 document.getElementById('timerRow').classList.add('disabled');
 
 // Customize toggle
