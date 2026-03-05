@@ -259,7 +259,7 @@
       background: var(--accent);
       cursor: pointer;
       box-shadow: 0 2px 8px rgba(0,0,0,0.3), 0 0 0 4px var(--accent-glow);
-      transition: box-shadow 0.2s;
+      transition: box-shadow 0.2s, transform 0.15s ease, background 0.15s ease;
     }
     input[type="range"]::-webkit-slider-thumb:hover {
       box-shadow: 0 2px 12px rgba(0,0,0,0.4), 0 0 0 6px var(--accent-glow);
@@ -610,7 +610,7 @@
 
     <div class="control">
       <label><span>Volume</span><span id="volVal">30%</span></label>
-      <input type="range" id="volume" min="0" max="100" value="30">
+      <input type="range" id="volume" min="0" max="100" value="30" step="any">
     </div>
     <button class="customize-toggle" id="customizeToggle">
       Customize <span class="toggle-arrow">&#x25BE;</span>
@@ -626,19 +626,19 @@
       </div>
       <div class="control">
         <label><span>Low Cut</span><span id="lowCutVal">Off</span></label>
-        <input type="range" id="lowCut" min="0" max="500" value="0">
+        <input type="range" id="lowCut" min="0" max="500" value="0" step="any">
       </div>
       <div class="control">
         <label><span>High Cut</span><span id="highCutVal">Off</span></label>
-        <input type="range" id="highCut" min="200" max="20000" value="20000">
+        <input type="range" id="highCut" min="200" max="20000" value="20000" step="any">
       </div>
       <div class="control">
         <label><span>Modulation</span><span id="modVal">Off</span></label>
-        <input type="range" id="modulation" min="0" max="100" value="0">
+        <input type="range" id="modulation" min="0" max="100" value="0" step="any">
       </div>
       <div class="control">
         <label><span>Mod Speed</span><span id="modSpeedVal">Slow</span></label>
-        <input type="range" id="modSpeed" min="1" max="100" value="15">
+        <input type="range" id="modSpeed" min="1" max="100" value="15" step="any">
       </div>
       <div class="preset-actions">
         <button class="action-btn" id="savePreset">+ Save current</button>
@@ -751,9 +751,9 @@
   <!-- Silent audio element keeps MediaSession/lock screen alive -->
   <audio id="silentAudio" playsinline preload="auto" loop></audio>
 
-  <script src="state.js?v=31"></script>
-  <script src="loop.js?v=31"></script>
-  <script src="app.js?v=31"></script>
+  <script src="state.js?v=32"></script>
+  <script src="loop.js?v=32"></script>
+  <script src="app.js?v=32"></script>
   <script>
   if ('serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js');
