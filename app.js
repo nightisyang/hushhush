@@ -1,3 +1,23 @@
+// ===== Haptic Feedback =====
+let haptics = null;
+import('https://esm.sh/web-haptics').then(m => {
+  haptics = new m.WebHaptics();
+}).catch(() => {});
+
+// Haptic tick fires once per visible value change (not per pixel)
+let lastHapticValue = null;
+function hapticTick(displayValue) {
+  if (!haptics) return;
+  if (displayValue === lastHapticValue) return;
+  lastHapticValue = displayValue;
+  haptics.trigger(8);
+}
+
+function hapticSnap() {
+  if (!haptics) return;
+  haptics.trigger('nudge');
+}
+
 // ===== Configuration =====
 const SAMPLE_RATE = 44100;
 const DURATION = 60;       // seconds per buffer
@@ -550,6 +570,7 @@ function executeLoadAudio() {
 }
 
 playBtn.addEventListener("click", async () => {
+  hapticSnap();
   ensureLiveContext();
   // iOS requires media playback to start synchronously within user activation.
   // Start silent session audio before any await so lock-screen controls can attach.
@@ -647,6 +668,7 @@ function updateMediaSession(settings, playbackState) {
 document.getElementById("colors").addEventListener("click", (e) => {
   const btn = e.target.closest(".color-btn");
   if (!btn) return;
+  hapticSnap();
   colorBtns.forEach(b => b.classList.remove("active"));
   btn.classList.add("active");
   activeColor = btn.dataset.color;
@@ -660,35 +682,45 @@ function updateSliderFill(slider) {
 }
 
 volSlider.addEventListener("input", () => {
-  volValEl.textContent = volSlider.value + "%";
+  const display = Math.round(volSlider.value) + "%";
+  volValEl.textContent = display;
   updateSliderFill(volSlider);
   cachedVolume = parseInt(volSlider.value) / 100;
   if (masterGain) masterGain.gain.value = cachedVolume;
+  hapticTick(display);
   saveSettings();
 });
 
 lowCutSlider.addEventListener("input", () => {
-  const v = parseInt(lowCutSlider.value);
-  lowCutValEl.textContent = v === 0 ? "Off" : v + " Hz";
+  const v = Math.round(parseFloat(lowCutSlider.value));
+  const display = v <= 0 ? "Off" : v + " Hz";
+  lowCutValEl.textContent = display;
   updateSliderFill(lowCutSlider);
+  hapticTick(display);
 });
 
 highCutSlider.addEventListener("input", () => {
-  const v = parseInt(highCutSlider.value);
-  highCutValEl.textContent = v >= 20000 ? "Off" : v >= 1000 ? (v / 1000).toFixed(1) + " kHz" : v + " Hz";
+  const v = Math.round(parseFloat(highCutSlider.value));
+  const display = v >= 20000 ? "Off" : v >= 1000 ? (v / 1000).toFixed(1) + " kHz" : v + " Hz";
+  highCutValEl.textContent = display;
   updateSliderFill(highCutSlider);
+  hapticTick(display);
 });
 
 const MOD_LABELS = ["Slow", "Medium", "Fast", "Very fast"];
 modSlider.addEventListener("input", () => {
-  const v = parseInt(modSlider.value);
-  modValEl.textContent = v === 0 ? "Off" : v + "%";
+  const v = Math.round(parseFloat(modSlider.value));
+  const display = v <= 0 ? "Off" : v + "%";
+  modValEl.textContent = display;
   updateSliderFill(modSlider);
+  hapticTick(display);
 });
 
 modSpeedSlider.addEventListener("input", () => {
-  modSpeedValEl.textContent = MOD_LABELS[Math.min(parseInt(modSpeedSlider.value) / 25 | 0, 3)];
+  const display = MOD_LABELS[Math.min(parseInt(modSpeedSlider.value) / 25 | 0, 3)];
+  modSpeedValEl.textContent = display;
   updateSliderFill(modSpeedSlider);
+  hapticTick(display);
 });
 
 function deactivatePreset() {
@@ -718,10 +750,12 @@ function onFilterChange() {
   dispatch('SETTINGS_CHANGED');
 }
 
+function onSliderRelease() { lastHapticValue = null; }
 lowCutSlider.addEventListener("change", onFilterChange);
 highCutSlider.addEventListener("change", onFilterChange);
 modSlider.addEventListener("change", onFilterChange);
 modSpeedSlider.addEventListener("change", onFilterChange);
+[volSlider, lowCutSlider, highCutSlider, modSlider, modSpeedSlider].forEach(s => s.addEventListener("change", onSliderRelease));
 
 // ===== UI: Presets =====
 function getCustomPresets() {
@@ -817,6 +851,7 @@ presetsEl.addEventListener("click", (e) => {
   if (!btn) return;
   const p = allPresets[btn.dataset.idx];
   if (!p) return;
+  hapticSnap();
 
   if (e.target.classList.contains("delete-x")) {
     const customs = getCustomPresets().filter(c => c.name !== p.name);
@@ -930,6 +965,7 @@ function updateTimerDisplay(fade) {
 document.getElementById("timerRow").addEventListener("click", (e) => {
   const btn = e.target.closest(".timer-btn");
   if (!btn) return;
+  hapticSnap();
   setTimer(parseInt(btn.dataset.min));
 });
 
@@ -1102,9 +1138,7 @@ customizeToggle.addEventListener('click', function() {
   localStorage.setItem('hushhush_customize', isOpen ? 'open' : '');
 });
 
-// ===== Page Visibility — pause animations & timer when screen off =====
-let timerRemaining = null;
-
+// ===== Page Visibility — pause animations & timer display when screen off =====
 document.addEventListener('visibilitychange', () => {
   if (document.hidden) {
     // Pause CSS animations via class on body
@@ -1114,30 +1148,29 @@ document.addEventListener('visibilitychange', () => {
     for (const [, id] of sliderAnimations) cancelAnimationFrame(id);
     sliderAnimations.clear();
 
-    // Pause timer interval to avoid 1s CPU wakeups — store remaining time
-    if (timerInterval && timerEnd) {
-      timerRemaining = timerEnd - Date.now();
+    // Stop timer interval to avoid 1s CPU wakeups while screen is off.
+    // timerEnd stays unchanged so real wall-clock time still counts down.
+    if (timerInterval) {
       clearInterval(timerInterval);
       timerInterval = null;
     }
   } else {
     document.body.classList.remove('screen-off');
 
-    // Restore timer from remaining time
-    if (timerRemaining != null && timerRemaining > 0 && machine.phase !== 'idle') {
-      timerEnd = Date.now() + timerRemaining;
-      updateTimerDisplay(false);
-      timerInterval = setInterval(() => {
-        if (Date.now() >= timerEnd) {
-          dispatch('STOP');
-          return;
-        }
+    // Restart timer interval — timerEnd was never changed, so elapsed lock-screen time counts
+    if (timerEnd && machine.phase !== 'idle') {
+      if (Date.now() >= timerEnd) {
+        dispatch('STOP');
+      } else {
         updateTimerDisplay(false);
-      }, 1000);
-    } else if (timerRemaining != null && timerRemaining <= 0 && machine.phase !== 'idle') {
-      // Timer expired while screen was off
-      dispatch('STOP');
+        timerInterval = setInterval(() => {
+          if (Date.now() >= timerEnd) {
+            dispatch('STOP');
+            return;
+          }
+          updateTimerDisplay(false);
+        }, 1000);
+      }
     }
-    timerRemaining = null;
   }
 });
